@@ -22,6 +22,9 @@ typedef struct
 	void *callback_log_arg;
 	
 	PerlInterpreter *perl_int;
+	
+	// for simple api
+	CassSession *session;
 }
 cassandra_t;
 
@@ -76,9 +79,6 @@ static inline void base_callback_log(cass_uint64_t time, CassLogLevel severity, 
 		ENTER;
 		SAVETMPS;
 		
-		//char str[128];
-		//strftime(str, 20, "%Y-%m-%d %H:%M:%S", localtime((const time_t *)&time));
-		
 		PUSHMARK(sp);
 			XPUSHs( sv_2mortal( newSViv(time) ) );
 			XPUSHs( sv_2mortal( newSViv(severity) ) );
@@ -99,9 +99,483 @@ static inline void base_callback_log(cass_uint64_t time, CassLogLevel severity, 
 	pthread_mutex_unlock(&mutex);
 }
 
+//		if(SvROK(sv_bind) && SvTYPE(SvRV(sv_bind)) == SVt_PVAV)
+//		{
+//			AV* array = (AV*)SvRV(sv_bind);
+//			SSize_t elem_size = av_len(array) + 1;
+//            SSize_t i;
+//			
+//			for (i = 0; i < elem_size; i++)
+//			{
+//				SV **sv_value = av_fetch(array, i, 0);
+//				unsigned char *key = (unsigned char *)SvPV(*sv_value, len);
+//				
+//				unsigned char *output = NULL;
+//				
+//				cass_statement_bind_custom(statement, i, (cass_size_t)len, &output);
+//				
+//				size_t size_m = sizeof(int32_t) + sizeof(int32_t);
+//				
+//				size_t i;
+//				for(i = 0; i < len; i++)
+//				{
+//					output[i] = key[i];
+//				}
+//			}
+//		}
+
 MODULE = Database::Cassandra::Client  PACKAGE = Database::Cassandra::Client
 
 PROTOTYPES: DISABLE
+
+####
+#
+# Simple api
+#
+####
+
+CassError
+sm_connect(cass, contact_points)
+	Database::Cassandra::Client cass;
+	char *contact_points;
+	
+	CODE:
+		cass_cluster_set_contact_points(cass->cluster, contact_points);
+		
+		CassError rc = CASS_OK;
+		CassFuture* future = cass_cluster_connect(cass->cluster);
+		
+		cass_future_wait(future);
+		rc = cass_future_error_code(future);
+		
+		if(rc == CASS_OK)
+			cass->session = cass_future_get_session(future);
+		
+		cass_future_free(future);
+		
+		RETVAL = rc;
+	OUTPUT:
+		RETVAL
+
+CassStatement*
+sm_prepare(cass, query, out_status)
+	Database::Cassandra::Client cass;
+	SV *query;
+	SV *out_status;
+	
+	PREINIT:
+		STRLEN len = 0;
+	CODE:
+		sv_setiv(out_status, CASS_OK);
+		
+		char *c_query = SvPV( query, len );
+		CassString cass_query = cass_string_init(c_query);
+		
+		CassFuture *future = cass_session_prepare(cass->session, cass_query);
+		cass_future_wait(future);
+		
+		CassStatement *statement = NULL;
+		CassPrepared *prepared = NULL;
+		CassError rc = cass_future_error_code(future);
+		
+		if(rc == CASS_OK)
+		{
+			prepared = (CassPrepared *)cass_future_get_prepared(future);
+			statement = cass_prepared_bind(prepared);
+			cass_prepared_free(prepared);
+		}
+		else
+		{
+			sv_setiv(out_status, rc);
+		}
+		cass_future_free(future);
+		
+		RETVAL = statement;
+		
+	OUTPUT:
+		RETVAL
+
+CassError
+sm_execute_query(cass, statement)
+	Database::Cassandra::Client cass;
+	CassStatement *statement;
+	
+	CODE:
+		CassError rc = CASS_OK;
+		
+		if(statement)
+		{
+			CassFuture *future = cass_session_execute(cass->session, statement);
+			cass_future_wait(future);
+			
+			rc = cass_future_error_code(future);
+			
+			cass_future_free(future);
+			cass_statement_free(statement);
+		}
+		else
+			rc = CASS_ERROR_LIB_NULL_VALUE;
+		
+		RETVAL = rc;
+	OUTPUT:
+		RETVAL
+
+SV*
+sm_select_query(cass, statement, binds, out_status)
+	Database::Cassandra::Client cass;
+	CassStatement *statement;
+	SV *binds;
+	SV *out_status;
+	
+	CODE:
+		CassError rc = CASS_OK;
+		sv_setiv(out_status, rc);
+		
+		AV* array = newAV();
+		
+		if(statement)
+		{
+			CassFuture *future = cass_session_execute(cass->session, statement);
+			cass_future_wait(future);
+			
+			if((rc = cass_future_error_code(future)) == CASS_OK)
+			{
+				const CassRow *row = NULL;
+				const CassResult *result = cass_future_get_result(future);
+				CassIterator *iterator   = cass_iterator_from_result(result);
+				
+				cass_size_t column_id;
+				cass_size_t column_count = cass_result_column_count(result);
+				
+				SV **ha;
+				
+				while(cass_iterator_next(iterator))
+				{
+					row = cass_iterator_get_row(iterator);
+					
+					HV *hash = newHV();
+					
+					for(column_id = 0; column_id < column_count; column_id++)
+					{
+						const CassValue *column = cass_row_get_column(row, column_id);
+						CassString column_name  = cass_result_column_name(result, column_id);
+						
+						if(cass_value_is_null(column))
+						{
+							ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							continue;
+						}
+						
+						switch (cass_result_column_type(result, column_id))
+						{
+							case CASS_VALUE_TYPE_UNKNOWN:
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+							}
+							case CASS_VALUE_TYPE_CUSTOM:
+							{
+								CassBytes s_output;
+								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.data), s_output.size), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_ASCII:
+							{
+								CassString s_output;
+								if(cass_value_get_string(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv(s_output.data, s_output.length), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_BIGINT:
+							{
+								cass_int64_t s_output;
+								if(cass_value_get_int64(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_BLOB:
+							{
+								CassBytes s_output;
+								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.data), s_output.size), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_BOOLEAN:
+							{
+								cass_bool_t s_output;
+								if(cass_value_get_bool(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_COUNTER:
+							{
+								cass_int32_t s_output;
+								if(cass_value_get_int32(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_DECIMAL:
+							{
+								CassDecimal s_output;
+								if(cass_value_get_decimal(column, &s_output)  == CASS_OK)
+								{
+									HV *hash_value = newHV();
+									ha = hv_store(hash_value, "scale", 5, newSViv(s_output.scale), 0);
+									ha = hv_store(hash_value, "bytes", 5, newSVpv((char *)(s_output.varint.data), s_output.varint.size), 0);
+									ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc( (SV *)hash_value ), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_DOUBLE:
+							{
+								cass_double_t s_output;
+								if(cass_value_get_double(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVnv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_FLOAT:
+							{
+								cass_float_t s_output;
+								if(cass_value_get_float(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVnv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_INT:
+							{
+								cass_int32_t s_output;
+								if(cass_value_get_int32(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_TEXT:
+							{
+								CassString s_output;
+								if(cass_value_get_string(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv(s_output.data, s_output.length), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_TIMESTAMP:
+							{
+								cass_int32_t s_output;
+								if(cass_value_get_int32(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_UUID:
+							{
+								CassUuid s_output;
+								if(cass_value_get_uuid(column, s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_VARCHAR:
+							{
+								CassString s_output;
+								if(cass_value_get_string(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv(s_output.data, s_output.length), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_VARINT:
+							{
+								cass_int32_t s_output;
+								if(cass_value_get_int32(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_TIMEUUID:
+							{
+								CassUuid s_output;
+								if(cass_value_get_uuid(column, s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_INET:
+							{
+								CassInet s_output;
+								if(cass_value_get_inet(column, &s_output) == CASS_OK)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.address), CASS_INET_V6_LENGTH), 0);
+								}
+								else
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								}
+								
+								break;
+							}
+							case CASS_VALUE_TYPE_LIST:
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+							}
+							case CASS_VALUE_TYPE_MAP:
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+							}
+							case CASS_VALUE_TYPE_SET:
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+							}
+							default:
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+						}
+					}
+					
+					av_push(array, newRV_noinc((SV*)hash));
+				}
+				
+				cass_result_free(result);
+				cass_iterator_free(iterator);
+			}
+			
+			cass_future_free(future);
+			cass_statement_free(statement);
+		}
+		else
+			sv_setiv(out_status, CASS_ERROR_LIB_NULL_VALUE);
+		
+		RETVAL = newRV_noinc((SV *)array);
+	OUTPUT:
+		RETVAL
+
+void
+sm_destroy(cass)
+	Database::Cassandra::Client cass;
+	
+	CODE:
+		if(cass->session)
+		{
+			CassFuture *close_future = cass_session_close(cass->session);
+			cass_future_wait(close_future);
+			cass_future_free(close_future);
+			
+			cass->session = NULL;
+		}
+		
+		if(cass->cluster)
+			cass_cluster_free(cass->cluster);
+		
+		cass->cluster = NULL;
+
+####
+#
+# Base api
+#
+####
 
 Database::Cassandra::Client
 cluster_new(name = 0)
@@ -116,6 +590,7 @@ cluster_new(name = 0)
 		cass->callback_log        = NULL;
 		cass->callback_log_arg    = NULL;
 		cass->perl_int            = NULL;
+		cass->session             = NULL;
 		
 		RETVAL = cass;
 	OUTPUT:

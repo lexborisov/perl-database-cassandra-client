@@ -1,3 +1,7 @@
+0.4	  Thu Nov 20 2014 09:18:30 GMT+0300 
+	+ Add simple API
+	+ Fix Makefile.PL
+
 0.3	 Sat Nov 15 2014 20:00:37 GMT+0300
 	+ First glue for libcassandra beta5
 

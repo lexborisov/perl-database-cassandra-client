@@ -22,6 +22,44 @@ make install
 
 # SYNOPSIS
 
+Simple API:
+
+```perl
+ use Database::Cassandra::Client;
+
+ my $cass = Database::Cassandra::Client->cluster_new();
+ 
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ # insert
+ {
+ 	my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ 	
+ 	$cass->statement_bind_int64($sth, 0, 1234567);
+ 	$cass->statement_bind_string($sth, 1, 'test body bind');
+ 	
+ 	$status = $cass->sm_execute_query($sth);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ }
+ 
+ # get row
+ {
+ 	my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=1234567", $status);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ 	
+ 	my $data = $cass->sm_select_query($sth, undef, $status);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ 	
+ 	print $data->[0]->{yauid}, ": ", $data->[0]->{body}, "\n";
+ }
+ 
+ $cass->sm_destroy();
+```
+
+Base API:
+
 ```perl
  use Database::Cassandra::Client;
  
@@ -87,6 +125,108 @@ This is glue for Cassandra C/C++ Driver library.
 
 
 # METHODS
+
+## simple
+
+### sm_connect
+
+```perl
+ my $error_code = $cass->sm_connect($contact_points);
+```
+
+Return: CASS_OK if successful, otherwise an error occurred
+
+Example:
+
+```perl
+ my $cass = Database::Cassandra::Client->cluster_new();
+ 
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+```
+
+### sm_prepare
+
+```perl
+ my $obj_Statement = $cass->sm_prepare($query, $out_status);
+```
+
+Return: obj_Statement
+
+Example:
+
+```perl
+ my $status;
+ my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (12345,'test text')", $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+```
+
+
+### sm_execute_query
+
+```perl
+ my $error_code = $cass->sm_execute_query($statement);
+```
+
+Return: CASS_OK if successful, otherwise an error occurred
+
+Example:
+
+```perl
+ my $cass = Database::Cassandra::Client->cluster_new();
+ 
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->statement_bind_int64($sth, 0, 1234567);
+ $cass->statement_bind_string($sth, 1, 'test body bind');
+ 
+ $status = $cass->sm_execute_query($sth);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->sm_destroy();
+```
+
+
+### sm_select_query
+
+```perl
+ my $res = $cass->sm_select_query($statement, $binds, $out_status);
+```
+
+Return: variable
+
+Example:
+
+```perl
+ my $cass = Database::Cassandra::Client->cluster_new();
+ 
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+
+ my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->statement_bind_int64($sth, 0, 1234567);
+ 
+ my $data = $cass->sm_select_query($sth, undef, $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->sm_destroy();
+```
+
+
+### sm_destroy
+
+```perl
+ $cass->sm_destroy();
+```
+
+Return: undef
+
 
 ## Cluster
 

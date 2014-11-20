@@ -22,13 +22,33 @@ push @dirs_header, "/usr/local/include", "/usr/include";
 push @dirs_header, "/opt/local/include", "/opt/include";
 
 my @dirs_lib = split /\s+/, $Config{libpth};
-push @dirs_lib, "/usr/local/lib64", "/usr/lib64";
-push @dirs_lib, "/opt/local/lib64", "/opt/lib64";
 push @dirs_lib, "/usr/local/lib", "/usr/lib";
 push @dirs_lib, "/opt/local/lib", "/opt/lib";
+push @dirs_lib, "/usr/local/lib64", "/usr/lib64";
+push @dirs_lib, "/opt/local/lib64", "/opt/lib64";
 
-check_lib_dirs(\@dirs_lib);
-check_header_dirs(\@dirs_header);
+($cassandra_lib_dir, $cassandra_file_path) = check_cass_exists(\@dirs_lib, $cassandra_lib_test_rgx);
+unless($cassandra_file_path)
+{
+	
+	warn "Warning: libcassandra not found\n";
+}
+else
+{
+	print "Found libcassandra in $cassandra_lib_dir\n";
+}
+
+
+($cassandra_h_dir, $cassandra_h_file_path) = check_cass_exists(\@dirs_header, $cassandra_hdr_test_rgx);
+unless($cassandra_h_file_path)
+{
+	
+	warn "Warning: cassandra.h not found\n";
+}
+else
+{
+	print "Found cassandra.h in $cassandra_h_dir\n";
+}
 
 WriteMakefile(
     AUTHOR         => 'Alexander Borisov <lex.borisov@gmail.com>',
@@ -40,64 +60,6 @@ WriteMakefile(
     LIBS           => ["-L$cassandra_lib_dir -lcassandra -lpthread"],
     INC            => '-I'. $cassandra_h_dir
 );
-
-sub check_header_dirs {
-	my ($dirs) = @_;
-	
-	($cassandra_h_dir, $cassandra_h_file_path) = check_cass_exists($dirs, $cassandra_hdr_test_rgx);
-	
-	while(1)
-	{
-		if($cassandra_h_dir && -d $cassandra_h_dir)
-		{
-			print "Find cassandra.h in $cassandra_h_dir", " ($cassandra_h_file_path)\n";
-			last;
-		}
-		else
-		{
-			print "WARNING! cassandra.h not found! Please, enter cassandra.h dir: ";
-			
-			my $line = <STDIN>;
-			#chop $line;
-			$line =~ s/^\s+//;
-			$line =~ s/\s+$//;
-			
-			if(-d $line)
-			{
-				($cassandra_h_dir, $cassandra_h_file_path) = check_cass_exists([$line], $cassandra_hdr_test_rgx);
-			}
-		}
-	}
-}
-
-sub check_lib_dirs {
-	my ($dirs) = @_;
-	
-	($cassandra_lib_dir, $cassandra_file_path) = check_cass_exists($dirs, $cassandra_lib_test_rgx);
-	
-	while(1)
-	{
-		if($cassandra_lib_dir && -d $cassandra_lib_dir)
-		{
-			print "Find libcassandra in $cassandra_lib_dir", " ($cassandra_file_path)\n";
-			last;
-		}
-		else
-		{
-			print "WARNING! libcassandra not found! Please, enter libcassandra dir: ";
-			
-			my $line = <STDIN>;
-			#chop $line;
-			$line =~ s/^\s+//;
-			$line =~ s/\s+$//;
-			
-			if(-d $line)
-			{
-				($cassandra_lib_dir, $cassandra_file_path) = check_cass_exists([$line], $cassandra_lib_test_rgx);
-			}
-		}
-	}
-}
 
 sub check_cass_exists {
 	my ($dirs, $rgx) = @_;

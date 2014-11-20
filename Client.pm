@@ -5,7 +5,7 @@ use strict;
 use vars qw($AUTOLOAD $VERSION $ABSTRACT @ISA @EXPORT);
 
 BEGIN {
-	$VERSION = 0.3;
+	$VERSION = 0.4;
 	$ABSTRACT = "Cassandra client (XS for libcassandra)";
 	
 	@ISA = qw(Exporter DynaLoader);
@@ -56,7 +56,43 @@ Database::Cassandra::Client - Cassandra client (XS for libcassandra)
 
 =head1 SYNOPSIS
 
+Simple API:
+
+ use Database::Cassandra::Client;
+
+ my $cass = Database::Cassandra::Client->cluster_new();
  
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ # insert
+ {
+ 	my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ 	
+ 	$cass->statement_bind_int64($sth, 0, 1234567);
+ 	$cass->statement_bind_string($sth, 1, 'test body bind');
+ 	
+ 	$status = $cass->sm_execute_query($sth);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ }
+ 
+ # get row
+ {
+ 	my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=1234567", $status);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ 	
+ 	my $data = $cass->sm_select_query($sth, undef, $status);
+ 	die $cass->error_desc($status) if $status != CASS_OK;
+ 	
+ 	print $data->[0]->{yauid}, ": ", $data->[0]->{body}, "\n";
+ }
+ 
+ $cass->sm_destroy();
+
+
+Base API:
+
  use Database::Cassandra::Client;
  
  my $status = CASS_OK;
@@ -127,6 +163,91 @@ See https://github.com/datastax/cpp-driver
 
 
 =head1 METHODS
+
+=head2 simple
+
+=head3 sm_connect
+
+ my $error_code = $cass->sm_connect($contact_points);
+
+Return: CASS_OK if successful, otherwise an error occurred
+
+Example:
+
+ my $cass = Database::Cassandra::Client->cluster_new();
+ 
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+
+
+=head3 sm_prepare
+
+ my $obj_Statement = $cass->sm_prepare($query, $out_status);
+
+Return: obj_Statement
+
+Example:
+
+ my $status;
+ my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (12345,'test text')", $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+
+
+=head3 sm_execute_query
+
+ my $error_code = $cass->sm_execute_query($statement);
+
+Return: CASS_OK if successful, otherwise an error occurred
+
+Example:
+
+ my $cass = Database::Cassandra::Client->cluster_new();
+ 
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->statement_bind_int64($sth, 0, 1234567);
+ $cass->statement_bind_string($sth, 1, 'test body bind');
+ 
+ $status = $cass->sm_execute_query($sth);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->sm_destroy();
+
+
+=head3 sm_select_query
+
+ my $res = $cass->sm_select_query($statement, $binds, $out_status);
+
+Return: variable
+
+Example:
+
+ my $cass = Database::Cassandra::Client->cluster_new();
+ 
+ my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
+ die $cass->error_desc($status) if $status != CASS_OK;
+
+ my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->statement_bind_int64($sth, 0, 1234567);
+ 
+ my $data = $cass->sm_select_query($sth, undef, $status);
+ die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->sm_destroy();
+
+
+=head3 sm_destroy
+
+ $cass->sm_destroy();
+
+Return: undef
+
 
 =head2 Cluster
 
@@ -1389,7 +1510,6 @@ Return: variable
 Return: variable
 
 
-
 =head1 DESTROY
 
  undef $cass;
@@ -1399,6 +1519,8 @@ Free mem and destroy object.
 =head1 AUTHOR
 
 Alexander Borisov <lex.borisov@gmail.com>
+
+https://github.com/lexborisov/perl-database-cassandra-client
 
 =head1 COPYRIGHT AND LICENSE
 
