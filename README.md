@@ -7,7 +7,7 @@ Cassandra client (XS for libcassandra)
 
 Please, before install this module make Cassandra library.
 
-Current beta5 ( https://github.com/datastax/cpp-driver/tree/beta5 )
+Current libcassandra 1.0 ( https://github.com/datastax/cpp-driver )
 
 See https://github.com/datastax/cpp-driver
 

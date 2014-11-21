@@ -5,7 +5,7 @@ use strict;
 use vars qw($AUTOLOAD $VERSION $ABSTRACT @ISA @EXPORT);
 
 BEGIN {
-	$VERSION = 0.4;
+	$VERSION = 0.41;
 	$ABSTRACT = "Cassandra client (XS for libcassandra)";
 	
 	@ISA = qw(Exporter DynaLoader);
@@ -157,7 +157,7 @@ This is glue for Cassandra C/C++ Driver library.
 
 Please, before install this module make Cassandra library.
 
-Current beta5 ( https://github.com/datastax/cpp-driver/tree/beta5 )
+Current libcassandra 1.0 ( https://github.com/datastax/cpp-driver )
 
 See https://github.com/datastax/cpp-driver
 

@@ -99,6 +99,145 @@ static inline void base_callback_log(cass_uint64_t time, CassLogLevel severity, 
 	pthread_mutex_unlock(&mutex);
 }
 
+SV * get_sv_by_int32(const CassValue *column)
+{
+	cass_int32_t s_output;
+	if(cass_value_get_int32(column, &s_output) == CASS_OK)
+	{
+		return newSViv(s_output);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_int64(const CassValue *column)
+{
+	cass_int64_t s_output;
+	if(cass_value_get_int64(column, &s_output) == CASS_OK)
+	{
+		return newSViv(s_output);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_float(const CassValue *column)
+{
+	cass_float_t s_output;
+	if(cass_value_get_float(column, &s_output) == CASS_OK)
+	{
+		return newSVnv(s_output);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_double(const CassValue *column)
+{
+	cass_double_t s_output;
+	if(cass_value_get_double(column, &s_output) == CASS_OK)
+	{
+		return newSVnv(s_output);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_bool(const CassValue *column)
+{
+	cass_bool_t s_output;
+	if(cass_value_get_bool(column, &s_output) == CASS_OK)
+	{
+		return newSViv(s_output);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_uuid(const CassValue *column)
+{
+	CassUuid s_output;
+	if(cass_value_get_uuid(column, s_output) == CASS_OK)
+	{
+		return newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_inet(const CassValue *column)
+{
+	CassInet s_output;
+	if(cass_value_get_inet(column, &s_output) == CASS_OK)
+	{
+		return newSVpv((char *)(s_output.address), s_output.address_length);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_string(const CassValue *column)
+{
+	CassString s_output;
+	if(cass_value_get_string(column, &s_output) == CASS_OK)
+	{
+		return newSVpv(s_output.data, s_output.length);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_bytes(const CassValue *column)
+{
+	CassBytes s_output;
+	if(cass_value_get_bytes(column, &s_output) == CASS_OK)
+	{
+		return newSVpv((char *)s_output.data, s_output.size);
+	}
+	
+	return &PL_sv_undef;
+}
+
+SV * get_sv_by_decimal(const CassValue *column)
+{
+	CassDecimal s_output;
+	if(cass_value_get_decimal(column, &s_output) == CASS_OK)
+	{
+		SV **ha;
+		HV *hash_value = newHV();
+		ha = hv_store(hash_value, "scale", 5, newSViv(s_output.scale), 0);
+		ha = hv_store(hash_value, "bytes", 5, newSVpv((char *)(s_output.varint.data), s_output.varint.size), 0);
+		
+		return newRV_noinc( (SV *)hash_value );
+	}
+	
+	return &PL_sv_undef;
+}
+
+typedef SV * (*sv_by_type_cass_func)(const CassValue *column);
+
+// not safe
+void *sv_by_type_cass[CASS_VALUE_TYPE_SET] = {
+	get_sv_by_bytes,
+	get_sv_by_string,
+	get_sv_by_int64,
+	get_sv_by_bytes,
+	get_sv_by_bool,
+	get_sv_by_int32,
+	get_sv_by_decimal,
+	get_sv_by_double,
+	get_sv_by_float,
+	get_sv_by_int32,
+	get_sv_by_string,
+	get_sv_by_int32,
+	get_sv_by_uuid,
+	get_sv_by_string,
+	get_sv_by_int32,
+	get_sv_by_uuid,
+	get_sv_by_inet,
+	0
+};
+
 //		if(SvROK(sv_bind) && SvTYPE(SvRV(sv_bind)) == SVt_PVAV)
 //		{
 //			AV* array = (AV*)SvRV(sv_bind);
@@ -505,7 +644,7 @@ sm_select_query(cass, statement, binds, out_status)
 								CassInet s_output;
 								if(cass_value_get_inet(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.address), CASS_INET_V6_LENGTH), 0);
+									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.address), s_output.address_length), 0);
 								}
 								else
 								{
@@ -516,17 +655,85 @@ sm_select_query(cass, statement, binds, out_status)
 							}
 							case CASS_VALUE_TYPE_LIST:
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								CassIterator *iterator_l = cass_iterator_from_collection(column);
+								CassValueType type_key = cass_value_primary_sub_type(column);
+								
+								if(type_key > CASS_VALUE_TYPE_INET)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+									break;
+								}
+								
+								AV* array_list = newAV();
+								
+								while (cass_iterator_next(iterator_l))
+								{
+									SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
+										(cass_iterator_get_value(iterator_l));
+									
+									av_push(array_list, sv_key); 
+								}
+								cass_iterator_free(iterator_l);
+								
+								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
 								break;
 							}
 							case CASS_VALUE_TYPE_MAP:
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								CassIterator* iterator_l = cass_iterator_from_map(column);
+								
+								CassValueType type_key = cass_value_primary_sub_type(column);
+								CassValueType type_value = cass_value_secondary_sub_type(column);
+								
+								if(type_key > CASS_VALUE_TYPE_INET || type_value > CASS_VALUE_TYPE_INET)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+									break;
+								}
+								
+								HV *hash_value = newHV();
+								STRLEN len;
+								
+								while (cass_iterator_next(iterator_l))
+								{
+									SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
+										(cass_iterator_get_map_key(iterator_l));
+									
+									SV *sv_value = (*((sv_by_type_cass_func)sv_by_type_cass[type_value]))
+										(cass_iterator_get_map_value(iterator_l));
+									
+									char *key_c = SvPV( sv_key, len );
+									
+									ha = hv_store(hash_value, key_c, len, sv_value, 0);
+								}
+								cass_iterator_free(iterator_l);
+								
+								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)hash_value), 0);
 								break;
 							}
 							case CASS_VALUE_TYPE_SET:
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								CassIterator *iterator_l = cass_iterator_from_collection(column);
+								CassValueType type_key = cass_value_primary_sub_type(column);
+								
+								if(type_key > CASS_VALUE_TYPE_INET)
+								{
+									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+									break;
+								}
+								
+								AV* array_list = newAV();
+								
+								while (cass_iterator_next(iterator_l))
+								{
+									SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
+										(cass_iterator_get_value(iterator_l));
+									
+									av_push(array_list, sv_key); 
+								}
+								cass_iterator_free(iterator_l);
+								
+								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
 								break;
 							}
 							default:
@@ -1228,35 +1435,27 @@ statement_bind_decimal(cass, statement, index, value)
 		RETVAL
 
 CassError
-statement_bind_custom(cass, statement, index, size, output)
+statement_bind_custom(cass, statement, index, data)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
 	SV *index;
-	SV *size;
-	SV *output;
+	SV *data;
 	
 	CODE:
-		cass_size_t size_p = (cass_size_t)SvUV(index);
-		cass_byte_t** output_p;
-		RETVAL = cass_statement_bind_custom(statement, (cass_size_t)SvUV(index), size_p, output_p);
+		STRLEN n_len;
+		unsigned char *data_c = (unsigned char *)SvPV(data, n_len);
 		
-		AV* array = newAV();
+		cass_byte_t *output_p = NULL;
+		RETVAL = cass_statement_bind_custom(statement, (cass_size_t)SvUV(index), n_len, &output_p);
 		
 		if(RETVAL == CASS_OK)
 		{
-			cass_size_t i; 
-			for(i = 0; i < size_p; i++)
+			cass_size_t i;
+			for(i = 0; i < n_len; i++)
 			{
-				SV *n_str = sv_2mortal( newSVpv((char *)(output_p[i]), 0) );
-				STRLEN n_len;
-				
-				sv_setpv(output, SvPV(n_str, n_len));
-				av_push(array, newRV_noinc(n_str));
+				output_p[i] = data_c[i];
 			}
 		}
-		
-		// TODO: wrong
-		output = newRV_noinc((SV*)array);
 		
 	OUTPUT:
 		RETVAL
@@ -1421,35 +1620,27 @@ statement_bind_decimal_by_name(cass, statement, name, value)
 		RETVAL
 
 CassError
-statement_bind_custom_by_name(cass, statement, name, size, output)
+statement_bind_custom_by_name(cass, statement, name, data)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
 	const char *name;
-	SV *size;
-	SV *output;
+	SV *data;
 	
 	CODE:
-		cass_size_t size_p = (cass_size_t)SvUV(size);
-		cass_byte_t** output_p;
-		RETVAL = cass_statement_bind_custom_by_name(statement, name, size_p, output_p);
+		STRLEN n_len;
+		unsigned char *data_c = (unsigned char *)SvPV(data, n_len);
 		
-		AV* array = newAV();
+		cass_byte_t *output_p = NULL;
+		RETVAL = cass_statement_bind_custom_by_name(statement, name, n_len, &output_p);
 		
 		if(RETVAL == CASS_OK)
 		{
-			cass_size_t i; 
-			for(i = 0; i < size_p; i++)
+			cass_size_t i;
+			for(i = 0; i < n_len; i++)
 			{
-				SV *n_str = sv_2mortal( newSVpv((char *)(output_p[i]), 0) );
-				STRLEN n_len;
-				
-				sv_setpv(output, SvPV(n_str, n_len));
-				av_push(array, newRV_noinc(n_str));
+				output_p[i] = data_c[i];
 			}
 		}
-		
-		// TODO: wrong
-		output = newRV_noinc((SV*)array);
 		
 	OUTPUT:
 		RETVAL
@@ -2020,7 +2211,7 @@ value_get_inet(cass, value, output)
 		CassInet s_output;
 		RETVAL = cass_value_get_inet(value, &s_output);
 		
-		SV *n_str = sv_2mortal( newSVpv((char *)(s_output.address), CASS_INET_V6_LENGTH) );
+		SV *n_str = sv_2mortal( newSVpv((char *)(s_output.address), s_output.address_length) );
 		
 		STRLEN n_len;
 		sv_setpv(output, SvPV(n_str, n_len));

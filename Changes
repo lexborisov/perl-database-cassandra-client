@@ -1,3 +1,7 @@
+0.41	  Fri Nov 21 2014 16:09:30 GMT+0300
+	+ added support MAP, SET and LIST for sm_select_query method
+	+ migrate to libcassandra 1.0 (release beta5)
+
 0.4	  Thu Nov 20 2014 09:18:30 GMT+0300 
 	+ Add simple API
 	+ Fix Makefile.PL
