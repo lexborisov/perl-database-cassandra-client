@@ -229,7 +229,7 @@ void *sv_by_type_cass[CASS_VALUE_TYPE_SET] = {
 	get_sv_by_float,
 	get_sv_by_int32,
 	get_sv_by_string,
-	get_sv_by_int32,
+	get_sv_by_int64,
 	get_sv_by_uuid,
 	get_sv_by_string,
 	get_sv_by_int32,
@@ -571,8 +571,8 @@ sm_select_query(cass, statement, binds, out_status)
 							}
 							case CASS_VALUE_TYPE_TIMESTAMP:
 							{
-								cass_int32_t s_output;
-								if(cass_value_get_int32(column, &s_output) == CASS_OK)
+								cass_int64_t s_output;
+								if(cass_value_get_int64(column, &s_output) == CASS_OK)
 								{
 									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
 								}
