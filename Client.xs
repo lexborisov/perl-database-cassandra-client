@@ -183,7 +183,10 @@ SV * get_sv_by_inet(const CassValue *column)
 	if(cass_value_get_inet(column, &s_output) == CASS_OK)
 	{
 		SV *val = newSVpv((char *)(s_output.address), s_output.address_length);
-		SvUTF8_on(val);
+		
+		if(s_output.address_length)
+			SvUTF8_on(val);
+		
 		return val;
 	}
 	
@@ -196,7 +199,10 @@ SV * get_sv_by_string(const CassValue *column)
 	if(cass_value_get_string(column, &s_output) == CASS_OK)
 	{
 		SV *val = newSVpv(s_output.data, s_output.length);
-		SvUTF8_on(val);
+		
+		if(s_output.length)
+			SvUTF8_on(val);
+		
 		return val;
 	}
 	
@@ -209,7 +215,10 @@ SV * get_sv_by_bytes(const CassValue *column)
 	if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 	{
 		SV *val = newSVpv((char *)s_output.data, s_output.size);
-		SvUTF8_on(val);
+		
+		if(s_output.size)
+			SvUTF8_on(val);
+		
 		return val;
 	}
 	
@@ -436,7 +445,10 @@ sm_select_query(cass, statement, binds, out_status)
 								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 								{
 									val = newSVpv((char *)(s_output.data), s_output.size);
-									SvUTF8_on(val);
+									
+									if(s_output.size)
+										SvUTF8_on(val);
+									
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
@@ -452,7 +464,8 @@ sm_select_query(cass, statement, binds, out_status)
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
 									val = newSVpv(s_output.data, s_output.length);
-									SvUTF8_on(val);
+									if(s_output.length)
+										SvUTF8_on(val);
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
@@ -484,7 +497,10 @@ sm_select_query(cass, statement, binds, out_status)
 								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 								{
 									val = newSVpv((char *)(s_output.data), s_output.size);
-									SvUTF8_on(val);
+									
+									if(s_output.size)
+										SvUTF8_on(val);
+									
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
@@ -597,7 +613,10 @@ sm_select_query(cass, statement, binds, out_status)
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
 									val = newSVpv(s_output.data, s_output.length);
-									SvUTF8_on(val);
+									
+									if(s_output.length)
+										SvUTF8_on(val);
+									
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
@@ -645,7 +664,10 @@ sm_select_query(cass, statement, binds, out_status)
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
 									val = newSVpv(s_output.data, s_output.length);
-									SvUTF8_on(val);
+									
+									if(s_output.length)
+										SvUTF8_on(val);
+									
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
@@ -676,7 +698,9 @@ sm_select_query(cass, statement, binds, out_status)
 								CassUuid s_output;
 								if(cass_value_get_uuid(column, s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH), 0);
+									val = newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -690,7 +714,12 @@ sm_select_query(cass, statement, binds, out_status)
 								CassInet s_output;
 								if(cass_value_get_inet(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.address), s_output.address_length), 0);
+									val = newSVpv((char *)(s_output.address), s_output.address_length);
+									
+									if(s_output.address_length)
+										SvUTF8_on(val);
+									
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -799,6 +828,8 @@ sm_select_query(cass, statement, binds, out_status)
 		}
 		else
 			sv_setiv(out_status, CASS_ERROR_LIB_NULL_VALUE);
+		
+		SvUTF8_on((SV *)array);
 		
 		RETVAL = newRV_noinc((SV *)array);
 	OUTPUT:

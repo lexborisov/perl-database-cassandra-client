@@ -1,3 +1,6 @@
+0.54	  Wed Nov 26 2014 18:02:09 GMT+0300
+	+ add support really utf8 :)
+
 0.53	  Wed Nov 26 2014 16:43:44 GMT+0300
 	+ add support utf8
 	+ add new method sm_finish_query
