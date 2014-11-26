@@ -104,7 +104,9 @@ SV * get_sv_by_int32(const CassValue *column)
 	cass_int32_t s_output;
 	if(cass_value_get_int32(column, &s_output) == CASS_OK)
 	{
-		return newSViv(s_output);
+		SV *val = newSViv(s_output);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -115,7 +117,9 @@ SV * get_sv_by_int64(const CassValue *column)
 	cass_int64_t s_output;
 	if(cass_value_get_int64(column, &s_output) == CASS_OK)
 	{
-		return newSViv(s_output);
+		SV *val = newSViv(s_output);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -126,7 +130,9 @@ SV * get_sv_by_float(const CassValue *column)
 	cass_float_t s_output;
 	if(cass_value_get_float(column, &s_output) == CASS_OK)
 	{
-		return newSVnv(s_output);
+		SV *val = newSVnv(s_output);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -137,7 +143,9 @@ SV * get_sv_by_double(const CassValue *column)
 	cass_double_t s_output;
 	if(cass_value_get_double(column, &s_output) == CASS_OK)
 	{
-		return newSVnv(s_output);
+		SV *val = newSVnv(s_output);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -148,7 +156,9 @@ SV * get_sv_by_bool(const CassValue *column)
 	cass_bool_t s_output;
 	if(cass_value_get_bool(column, &s_output) == CASS_OK)
 	{
-		return newSViv(s_output);
+		SV *val = newSViv(s_output);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -159,7 +169,9 @@ SV * get_sv_by_uuid(const CassValue *column)
 	CassUuid s_output;
 	if(cass_value_get_uuid(column, s_output) == CASS_OK)
 	{
-		return newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+		SV *val = newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -170,7 +182,9 @@ SV * get_sv_by_inet(const CassValue *column)
 	CassInet s_output;
 	if(cass_value_get_inet(column, &s_output) == CASS_OK)
 	{
-		return newSVpv((char *)(s_output.address), s_output.address_length);
+		SV *val = newSVpv((char *)(s_output.address), s_output.address_length);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -181,7 +195,9 @@ SV * get_sv_by_string(const CassValue *column)
 	CassString s_output;
 	if(cass_value_get_string(column, &s_output) == CASS_OK)
 	{
-		return newSVpv(s_output.data, s_output.length);
+		SV *val = newSVpv(s_output.data, s_output.length);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -192,7 +208,9 @@ SV * get_sv_by_bytes(const CassValue *column)
 	CassBytes s_output;
 	if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 	{
-		return newSVpv((char *)s_output.data, s_output.size);
+		SV *val = newSVpv((char *)s_output.data, s_output.size);
+		SvUTF8_on(val);
+		return val;
 	}
 	
 	return &PL_sv_undef;
@@ -350,7 +368,6 @@ sm_execute_query(cass, statement)
 			rc = cass_future_error_code(future);
 			
 			cass_future_free(future);
-			cass_statement_free(statement);
 		}
 		else
 			rc = CASS_ERROR_LIB_NULL_VALUE;
@@ -393,6 +410,7 @@ sm_select_query(cass, statement, binds, out_status)
 					row = cass_iterator_get_row(iterator);
 					
 					HV *hash = newHV();
+					SV *val;
 					
 					for(column_id = 0; column_id < column_count; column_id++)
 					{
@@ -417,7 +435,9 @@ sm_select_query(cass, statement, binds, out_status)
 								CassBytes s_output;
 								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.data), s_output.size), 0);
+									val = newSVpv((char *)(s_output.data), s_output.size);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -431,7 +451,9 @@ sm_select_query(cass, statement, binds, out_status)
 								CassString s_output;
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv(s_output.data, s_output.length), 0);
+									val = newSVpv(s_output.data, s_output.length);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -445,7 +467,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_int64_t s_output;
 								if(cass_value_get_int64(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+									val = newSViv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -459,7 +483,9 @@ sm_select_query(cass, statement, binds, out_status)
 								CassBytes s_output;
 								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output.data), s_output.size), 0);
+									val = newSVpv((char *)(s_output.data), s_output.size);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -473,7 +499,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_bool_t s_output;
 								if(cass_value_get_bool(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+									val = newSViv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -487,7 +515,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_int32_t s_output;
 								if(cass_value_get_int32(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+									val = newSViv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -518,7 +548,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_double_t s_output;
 								if(cass_value_get_double(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVnv(s_output), 0);
+									val = newSVnv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -532,7 +564,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_float_t s_output;
 								if(cass_value_get_float(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVnv(s_output), 0);
+									val = newSVnv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -546,7 +580,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_int32_t s_output;
 								if(cass_value_get_int32(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+									val = newSViv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -560,7 +596,9 @@ sm_select_query(cass, statement, binds, out_status)
 								CassString s_output;
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv(s_output.data, s_output.length), 0);
+									val = newSVpv(s_output.data, s_output.length);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -574,7 +612,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_int64_t s_output;
 								if(cass_value_get_int64(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+									val = newSViv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -588,7 +628,9 @@ sm_select_query(cass, statement, binds, out_status)
 								CassUuid s_output;
 								if(cass_value_get_uuid(column, s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH), 0);
+									val = newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -602,7 +644,9 @@ sm_select_query(cass, statement, binds, out_status)
 								CassString s_output;
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSVpv(s_output.data, s_output.length), 0);
+									val = newSVpv(s_output.data, s_output.length);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -616,7 +660,9 @@ sm_select_query(cass, statement, binds, out_status)
 								cass_int32_t s_output;
 								if(cass_value_get_int32(column, &s_output) == CASS_OK)
 								{
-									ha = hv_store(hash, column_name.data, column_name.length, newSViv(s_output), 0);
+									val = newSViv(s_output);
+									SvUTF8_on(val);
+									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
 								else
 								{
@@ -750,7 +796,6 @@ sm_select_query(cass, statement, binds, out_status)
 			}
 			
 			cass_future_free(future);
-			cass_statement_free(statement);
 		}
 		else
 			sv_setiv(out_status, CASS_ERROR_LIB_NULL_VALUE);
@@ -758,6 +803,17 @@ sm_select_query(cass, statement, binds, out_status)
 		RETVAL = newRV_noinc((SV *)array);
 	OUTPUT:
 		RETVAL
+
+void
+sm_finish_query(cass, statement)
+	Database::Cassandra::Client cass;
+	CassStatement *statement;
+	
+	CODE:
+		if(statement)
+		{
+			cass_statement_free(statement);
+		}
 
 void
 sm_destroy(cass)

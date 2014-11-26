@@ -28,6 +28,7 @@ Simple API:
  use Database::Cassandra::Client;
 
  my $cass = Database::Cassandra::Client->cluster_new();
+ $cass->cluster_set_num_threads_io(1);
  
  my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
  die $cass->error_desc($status) if $status != CASS_OK;
@@ -37,22 +38,35 @@ Simple API:
  	my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
  	die $cass->error_desc($status) if $status != CASS_OK;
  	
- 	$cass->statement_bind_int64($sth, 0, 1234567);
- 	$cass->statement_bind_string($sth, 1, 'test body bind');
- 	
- 	$status = $cass->sm_execute_query($sth);
- 	die $cass->error_desc($status) if $status != CASS_OK;
+	for my $id (1..15)
+	{
+		$cass->statement_bind_int64($sth, 0, $id);
+		$cass->statement_bind_string($sth, 1, "test body bind: $id");
+		
+		$status = $cass->sm_execute_query($sth);
+		die $cass->error_desc($status) if $status != CASS_OK;
+	}
+	
+	$cass->sm_finish_query($sth);
  }
  
  # get row
  {
- 	my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=1234567", $status);
+ 	my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
  	die $cass->error_desc($status) if $status != CASS_OK;
  	
- 	my $data = $cass->sm_select_query($sth, undef, $status);
- 	die $cass->error_desc($status) if $status != CASS_OK;
- 	
- 	print $data->[0]->{yauid}, ": ", $data->[0]->{body}, "\n";
+	for my $id (1..15)
+	{
+		$cass->statement_bind_int64($sth, 0, $id);
+		
+		my $data = $cass->sm_select_query($sth, undef, $status);
+		die $cass->error_desc($status) if $status != CASS_OK;
+		
+		print $data->[0]->{yauid}, ": ", $data->[0]->{body}, "\n"
+			if ref $data && exists $data->[0];
+ 	}
+	
+	$cass->sm_finish_query($sth);
  }
  
  $cass->sm_destroy();
@@ -159,6 +173,8 @@ Example:
  my $status;
  my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (12345,'test text')", $status);
  die $cass->error_desc($status) if $status != CASS_OK;
+ 
+ $cass->sm_finish_query($sth);
 ```
 
 
@@ -187,6 +203,7 @@ Example:
  $status = $cass->sm_execute_query($sth);
  die $cass->error_desc($status) if $status != CASS_OK;
  
+ $cass->sm_finish_query($sth);
  $cass->sm_destroy();
 ```
 
@@ -215,8 +232,17 @@ Example:
  my $data = $cass->sm_select_query($sth, undef, $status);
  die $cass->error_desc($status) if $status != CASS_OK;
  
+ $cass->sm_finish_query($sth);
  $cass->sm_destroy();
 ```
+
+### sm_finish_query
+
+```perl
+ $cass->sm_finish_query($sth);
+```
+
+Free query statement
 
 
 ### sm_destroy
