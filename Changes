@@ -1,3 +1,6 @@
+0.55	  Wed Nov 27 2014 17:33:09 GMT+0300
+	  fixed problem with empty strings
+
 0.54	  Wed Nov 26 2014 18:02:09 GMT+0300
 	+ add support really utf8 :)
 

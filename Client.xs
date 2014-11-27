@@ -12,6 +12,7 @@
 #include <cassandra.h>
 
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+const char term_null = '\0';
 
 typedef struct
 {
@@ -180,49 +181,61 @@ SV * get_sv_by_uuid(const CassValue *column)
 SV * get_sv_by_inet(const CassValue *column)
 {
 	CassInet s_output;
+	SV *val = &PL_sv_undef;
+	
 	if(cass_value_get_inet(column, &s_output) == CASS_OK)
 	{
-		SV *val = newSVpv((char *)(s_output.address), s_output.address_length);
-		
 		if(s_output.address_length)
-			SvUTF8_on(val);
+		{
+			val = newSVpv((char *)(s_output.address), s_output.address_length);
+		}
+		else
+			val = newSVpv(&term_null, 0);
 		
-		return val;
+		SvUTF8_on(val);
 	}
 	
-	return &PL_sv_undef;
+	return val;
 }
 
 SV * get_sv_by_string(const CassValue *column)
 {
 	CassString s_output;
+	SV *val = &PL_sv_undef;
+	
 	if(cass_value_get_string(column, &s_output) == CASS_OK)
 	{
-		SV *val = newSVpv(s_output.data, s_output.length);
-		
 		if(s_output.length)
-			SvUTF8_on(val);
+		{
+			val = newSVpv(s_output.data, s_output.length);
+		}
+		else
+			val = newSVpv(&term_null, 0);
 		
-		return val;
+		SvUTF8_on(val);
 	}
 	
-	return &PL_sv_undef;
+	return val;
 }
 
 SV * get_sv_by_bytes(const CassValue *column)
 {
 	CassBytes s_output;
+	SV *val = &PL_sv_undef;
+	
 	if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 	{
-		SV *val = newSVpv((char *)s_output.data, s_output.size);
-		
 		if(s_output.size)
-			SvUTF8_on(val);
+		{
+			val = newSVpv((char *)s_output.data, s_output.size);
+		}
+		else
+			val = newSVpv(&term_null, 0);
 		
-		return val;
+		SvUTF8_on(val);
 	}
 	
-	return &PL_sv_undef;
+	return val;
 }
 
 SV * get_sv_by_decimal(const CassValue *column)
@@ -442,36 +455,42 @@ sm_select_query(cass, statement, binds, out_status)
 							case CASS_VALUE_TYPE_CUSTOM:
 							{
 								CassBytes s_output;
+								val = &PL_sv_undef;
+								
 								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv((char *)(s_output.data), s_output.size);
-									
 									if(s_output.size)
-										SvUTF8_on(val);
+									{
+										val = newSVpv((char *)(s_output.data), s_output.size);
+									}
+									else
+										val = newSVpv(&term_null, 0);
 									
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+									SvUTF8_on(val);
 								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
+								
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								
 								break;
 							}
 							case CASS_VALUE_TYPE_ASCII:
 							{
 								CassString s_output;
+								val = &PL_sv_undef;
+								
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv(s_output.data, s_output.length);
 									if(s_output.length)
-										SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+									{
+										val = newSVpv(s_output.data, s_output.length);
+									}
+									else
+										val = newSVpv(&term_null, 0);
+									
+									SvUTF8_on(val);
 								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
+								
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								
 								break;
 							}
@@ -494,19 +513,21 @@ sm_select_query(cass, statement, binds, out_status)
 							case CASS_VALUE_TYPE_BLOB:
 							{
 								CassBytes s_output;
+								val = &PL_sv_undef;
+								
 								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv((char *)(s_output.data), s_output.size);
-									
 									if(s_output.size)
-										SvUTF8_on(val);
+									{
+										val = newSVpv((char *)(s_output.data), s_output.size);
+									}
+									else
+										val = newSVpv(&term_null, 0);
 									
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+									SvUTF8_on(val);
 								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
+								
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								
 								break;
 							}
@@ -610,19 +631,21 @@ sm_select_query(cass, statement, binds, out_status)
 							case CASS_VALUE_TYPE_TEXT:
 							{
 								CassString s_output;
+								val = &PL_sv_undef;
+								
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv(s_output.data, s_output.length);
-									
 									if(s_output.length)
-										SvUTF8_on(val);
+									{
+										val = newSVpv(s_output.data, s_output.length);
+									}
+									else
+										val = newSVpv(&term_null, 0);
 									
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+									SvUTF8_on(val);
 								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
+								
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								
 								break;
 							}
@@ -661,19 +684,21 @@ sm_select_query(cass, statement, binds, out_status)
 							case CASS_VALUE_TYPE_VARCHAR:
 							{
 								CassString s_output;
+								val = &PL_sv_undef;
+								
 								if(cass_value_get_string(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv(s_output.data, s_output.length);
-									
 									if(s_output.length)
-										SvUTF8_on(val);
+									{
+										val = newSVpv(s_output.data, s_output.length);
+									}
+									else
+										val = newSVpv(&term_null, 0);
 									
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+									SvUTF8_on(val);
 								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
+								
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								
 								break;
 							}
@@ -714,10 +739,12 @@ sm_select_query(cass, statement, binds, out_status)
 								CassInet s_output;
 								if(cass_value_get_inet(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv((char *)(s_output.address), s_output.address_length);
-									
 									if(s_output.address_length)
-										SvUTF8_on(val);
+										val = newSVpv((char *)(s_output.address), s_output.address_length);
+									else
+										val = newSVpv(&term_null, 0);
+									
+									SvUTF8_on(val);
 									
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
