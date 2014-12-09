@@ -263,7 +263,7 @@ void *sv_by_type_cass[CASS_VALUE_TYPE_SET] = {
 	get_sv_by_int64,
 	get_sv_by_bytes,
 	get_sv_by_bool,
-	get_sv_by_int32,
+	get_sv_by_int64,
 	get_sv_by_decimal,
 	get_sv_by_double,
 	get_sv_by_float,
@@ -550,7 +550,7 @@ sm_select_query(cass, statement, binds, out_status)
 							case CASS_VALUE_TYPE_COUNTER:
 							{
 								cass_int32_t s_output;
-								if(cass_value_get_int32(column, &s_output) == CASS_OK)
+								if(cass_value_get_int64(column, &s_output) == CASS_OK)
 								{
 									val = newSViv(s_output);
 									SvUTF8_on(val);
