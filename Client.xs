@@ -549,7 +549,7 @@ sm_select_query(cass, statement, binds, out_status)
 							}
 							case CASS_VALUE_TYPE_COUNTER:
 							{
-								cass_int32_t s_output;
+								cass_int64_t s_output;
 								if(cass_value_get_int64(column, &s_output) == CASS_OK)
 								{
 									val = newSViv(s_output);
