@@ -943,6 +943,16 @@ sm_destroy(cass)
 		
 		cass->cluster = NULL;
 
+CassSession*
+sm_get_session(cass)
+	Database::Cassandra::Client cass;
+	
+	CODE:
+		RETVAL = cass->session;
+		
+	OUTPUT:
+		RETVAL
+
 ####
 #
 # Base api
