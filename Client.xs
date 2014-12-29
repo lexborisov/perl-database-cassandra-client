@@ -398,6 +398,57 @@ sm_execute_query(cass, statement)
 	OUTPUT:
 		RETVAL
 
+CassFuture*
+sm_execute_query_no_wait(cass, statement)
+	Database::Cassandra::Client cass;
+	CassStatement *statement;
+	
+	CODE:
+		CassFuture *future = NULL;
+		
+		if(statement)
+			future = cass_session_execute(cass->session, statement);
+		
+		RETVAL = future;
+	OUTPUT:
+		RETVAL
+
+CassPrepared*
+sm_create_prepare(cass, query, out_status)
+	Database::Cassandra::Client cass;
+	SV *query;
+	SV *out_status;
+	
+	PREINIT:
+		STRLEN len = 0;
+	CODE:
+		sv_setiv(out_status, CASS_OK);
+		
+		char *c_query = SvPV( query, len );
+		CassString cass_query = cass_string_init(c_query);
+		
+		CassFuture *future = cass_session_prepare(cass->session, cass_query);
+		cass_future_wait(future);
+		
+		CassPrepared *prepared = NULL;
+		CassError rc = cass_future_error_code(future);
+		
+		if(rc == CASS_OK)
+		{
+			prepared = (CassPrepared *)cass_future_get_prepared(future);
+		}
+		else
+		{
+			sv_setiv(out_status, rc);
+		}
+		cass_future_free(future);
+		
+		RETVAL = prepared;
+		
+	OUTPUT:
+		RETVAL
+
+
 SV*
 sm_select_query(cass, statement, binds, out_status)
 	Database::Cassandra::Client cass;
