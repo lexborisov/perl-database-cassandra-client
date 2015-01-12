@@ -66,9 +66,9 @@ static inline void base_callback_future(CassFuture* future, void *arg)
 	pthread_mutex_unlock(&mutex);
 }
 
-static inline void base_callback_log(cass_uint64_t time, CassLogLevel severity, CassString message, void *arg)
+static inline void base_callback_log(const CassLogMessage* message, void* data)
 {
-	cassandra_t *cass = (cassandra_t *)arg;
+	cassandra_t *cass = (cassandra_t *)data;
 	
 	pthread_mutex_lock(&mutex);
 	
@@ -81,9 +81,12 @@ static inline void base_callback_log(cass_uint64_t time, CassLogLevel severity, 
 		SAVETMPS;
 		
 		PUSHMARK(sp);
-			XPUSHs( sv_2mortal( newSViv(time) ) );
-			XPUSHs( sv_2mortal( newSViv(severity) ) );
-			XPUSHs( sv_2mortal( newSVpv(message.data, message.length) ) );
+			XPUSHs( sv_2mortal( newSViv(message->time_ms) ) );
+			XPUSHs( sv_2mortal( newSViv(message->severity) ) );
+			XPUSHs( sv_2mortal( newSVpv(message->file, 0) ) );
+			XPUSHs( sv_2mortal( newSViv(message->line) ) );
+			XPUSHs( sv_2mortal( newSVpv(message->function, 0) ) );
+			XPUSHs( sv_2mortal( newSVpv(message->message, 0) ) );
 			
 			if(cass->callback_log_arg)
 			{
@@ -168,9 +171,12 @@ SV * get_sv_by_bool(const CassValue *column)
 SV * get_sv_by_uuid(const CassValue *column)
 {
 	CassUuid s_output;
-	if(cass_value_get_uuid(column, s_output) == CASS_OK)
+	if(cass_value_get_uuid(column, &s_output) == CASS_OK)
 	{
-		SV *val = newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+		char uuid[(CASS_UUID_STRING_LENGTH + 1)] = {0};
+		cass_uuid_string(s_output, uuid);
+		
+		SV *val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
 		SvUTF8_on(val);
 		return val;
 	}
@@ -319,20 +325,16 @@ sm_connect(cass, contact_points)
 	char *contact_points;
 	
 	CODE:
+		cass->session = cass_session_new();
 		cass_cluster_set_contact_points(cass->cluster, contact_points);
 		
-		CassError rc = CASS_OK;
-		CassFuture* future = cass_cluster_connect(cass->cluster);
+		CassFuture *connect_future = cass_session_connect(cass->session, cass->cluster);
 		
-		cass_future_wait(future);
-		rc = cass_future_error_code(future);
+		CassError err = cass_future_error_code(connect_future);
+		if(err == CASS_OK)
+			cass_future_free(connect_future);
 		
-		if(rc == CASS_OK)
-			cass->session = cass_future_get_session(future);
-		
-		cass_future_free(future);
-		
-		RETVAL = rc;
+		RETVAL = err;
 	OUTPUT:
 		RETVAL
 
@@ -397,57 +399,6 @@ sm_execute_query(cass, statement)
 		RETVAL = rc;
 	OUTPUT:
 		RETVAL
-
-CassFuture*
-sm_execute_query_no_wait(cass, statement)
-	Database::Cassandra::Client cass;
-	CassStatement *statement;
-	
-	CODE:
-		CassFuture *future = NULL;
-		
-		if(statement)
-			future = cass_session_execute(cass->session, statement);
-		
-		RETVAL = future;
-	OUTPUT:
-		RETVAL
-
-CassPrepared*
-sm_create_prepare(cass, query, out_status)
-	Database::Cassandra::Client cass;
-	SV *query;
-	SV *out_status;
-	
-	PREINIT:
-		STRLEN len = 0;
-	CODE:
-		sv_setiv(out_status, CASS_OK);
-		
-		char *c_query = SvPV( query, len );
-		CassString cass_query = cass_string_init(c_query);
-		
-		CassFuture *future = cass_session_prepare(cass->session, cass_query);
-		cass_future_wait(future);
-		
-		CassPrepared *prepared = NULL;
-		CassError rc = cass_future_error_code(future);
-		
-		if(rc == CASS_OK)
-		{
-			prepared = (CassPrepared *)cass_future_get_prepared(future);
-		}
-		else
-		{
-			sv_setiv(out_status, rc);
-		}
-		cass_future_free(future);
-		
-		RETVAL = prepared;
-		
-	OUTPUT:
-		RETVAL
-
 
 SV*
 sm_select_query(cass, statement, binds, out_status)
@@ -719,9 +670,12 @@ sm_select_query(cass, statement, binds, out_status)
 							case CASS_VALUE_TYPE_UUID:
 							{
 								CassUuid s_output;
-								if(cass_value_get_uuid(column, s_output) == CASS_OK)
+								if(cass_value_get_uuid(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+									char uuid[(CASS_UUID_STRING_LENGTH + 1)] = {0};
+									cass_uuid_string(s_output, uuid);
+									
+									val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
 									SvUTF8_on(val);
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
@@ -772,9 +726,12 @@ sm_select_query(cass, statement, binds, out_status)
 							case CASS_VALUE_TYPE_TIMEUUID:
 							{
 								CassUuid s_output;
-								if(cass_value_get_uuid(column, s_output) == CASS_OK)
+								if(cass_value_get_uuid(column, &s_output) == CASS_OK)
 								{
-									val = newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH);
+									char uuid[(CASS_UUID_STRING_LENGTH + 1)] = {0};
+									cass_uuid_string(s_output, uuid);
+									
+									val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
 									SvUTF8_on(val);
 									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
 								}
@@ -943,16 +900,6 @@ sm_destroy(cass)
 		
 		cass->cluster = NULL;
 
-CassSession*
-sm_get_session(cass)
-	Database::Cassandra::Client cass;
-	
-	CODE:
-		RETVAL = cass->session;
-		
-	OUTPUT:
-		RETVAL
-
 ####
 #
 # Base api
@@ -998,6 +945,14 @@ cluster_set_port(cass, port)
 	OUTPUT:
 		RETVAL
 
+void
+cluster_set_ssl(cass, ssl)
+	Database::Cassandra::Client cass;
+	CassSsl *ssl;
+	
+	CODE:
+		cass_cluster_set_ssl(cass->cluster, ssl);
+
 CassError
 cluster_set_protocol_version(cass, protocol_version)
 	Database::Cassandra::Client cass;
@@ -1008,15 +963,13 @@ cluster_set_protocol_version(cass, protocol_version)
 	OUTPUT:
 		RETVAL
 
-CassError
+void
 cluster_set_num_threads_io(cass, num_threads)
 	Database::Cassandra::Client cass;
 	unsigned num_threads;
 	
 	CODE:
-		RETVAL = cass_cluster_set_num_threads_io(cass->cluster, num_threads);
-	OUTPUT:
-		RETVAL
+		cass_cluster_set_num_threads_io(cass->cluster, num_threads);
 
 CassError
 cluster_set_queue_size_io(cass, queue_size)
@@ -1025,6 +978,26 @@ cluster_set_queue_size_io(cass, queue_size)
 	
 	CODE:
 		RETVAL = cass_cluster_set_queue_size_io(cass->cluster, queue_size);
+	OUTPUT:
+		RETVAL
+
+CassError
+cluster_set_queue_size_event(cass, queue_size)
+	Database::Cassandra::Client cass;
+	unsigned queue_size;
+	
+	CODE:
+		RETVAL = cass_cluster_set_queue_size_event(cass->cluster, queue_size);
+	OUTPUT:
+		RETVAL
+
+CassError
+cluster_set_queue_size_log(cass, queue_size)
+	Database::Cassandra::Client cass;
+	unsigned queue_size;
+	
+	CODE:
+		RETVAL = cass_cluster_set_queue_size_log(cass->cluster, queue_size);
 	OUTPUT:
 		RETVAL
 
@@ -1048,6 +1021,14 @@ cluster_set_max_connections_per_host(cass, num_connections)
 	OUTPUT:
 		RETVAL
 
+void
+cluster_set_reconnect_wait_time(cass, wait_time)
+	Database::Cassandra::Client cass;
+	unsigned wait_time;
+	
+	CODE:
+		cass_cluster_set_reconnect_wait_time(cass->cluster, wait_time);
+
 CassError
 cluster_set_max_concurrent_creation(cass, num_connections)
 	Database::Cassandra::Client cass;
@@ -1055,6 +1036,46 @@ cluster_set_max_concurrent_creation(cass, num_connections)
 	
 	CODE:
 		RETVAL = cass_cluster_set_max_concurrent_creation(cass->cluster, num_connections);
+	OUTPUT:
+		RETVAL
+
+CassError
+cluster_set_max_concurrent_requests_threshold(cass, num_requests)
+	Database::Cassandra::Client cass;
+	unsigned num_requests;
+	
+	CODE:
+		RETVAL = cass_cluster_set_max_concurrent_requests_threshold(cass->cluster, num_requests);
+	OUTPUT:
+		RETVAL
+
+CassError
+cluster_set_max_requests_per_flush(cass, num_requests)
+	Database::Cassandra::Client cass;
+	unsigned num_requests;
+	
+	CODE:
+		RETVAL = cass_cluster_set_max_requests_per_flush(cass->cluster, num_requests);
+	OUTPUT:
+		RETVAL
+
+CassError
+cluster_set_write_bytes_high_water_mark(cass, num_bytes)
+	Database::Cassandra::Client cass;
+	unsigned num_bytes;
+	
+	CODE:
+		RETVAL = cass_cluster_set_write_bytes_high_water_mark(cass->cluster, num_bytes);
+	OUTPUT:
+		RETVAL
+
+CassError
+cluster_set_write_bytes_low_water_mark(cass, num_bytes)
+	Database::Cassandra::Client cass;
+	unsigned num_bytes;
+	
+	CODE:
+		RETVAL = cass_cluster_set_write_bytes_low_water_mark(cass->cluster, num_bytes);
 	OUTPUT:
 		RETVAL
 
@@ -1078,118 +1099,77 @@ cluster_set_pending_requests_low_water_mark(cass, num_requests)
 	OUTPUT:
 		RETVAL
 
-CassError
-cluster_set_max_concurrent_requests_threshold(cass, num_requests)
+void
+cluster_set_connect_timeout(cass, timeout_ms)
 	Database::Cassandra::Client cass;
-	unsigned num_requests;
+	unsigned timeout_ms;
 	
 	CODE:
-		RETVAL = cass_cluster_set_max_concurrent_requests_threshold(cass->cluster, num_requests);
-	OUTPUT:
-		RETVAL
+		cass_cluster_set_connect_timeout(cass->cluster, timeout_ms);
 
-CassError
-cluster_set_connect_timeout(cass, timeout)
+void
+cluster_set_request_timeout(cass, timeout_ms)
 	Database::Cassandra::Client cass;
-	unsigned timeout;
+	unsigned timeout_ms;
 	
 	CODE:
-		RETVAL = cass_cluster_set_connect_timeout(cass->cluster, timeout);
-	OUTPUT:
-		RETVAL
+		cass_cluster_set_request_timeout(cass->cluster, timeout_ms);
 
-CassError
-cluster_set_request_timeout(cass, timeout)
-	Database::Cassandra::Client cass;
-	unsigned timeout;
-	
-	CODE:
-		RETVAL = cass_cluster_set_request_timeout(cass->cluster, timeout);
-	OUTPUT:
-		RETVAL
-
-CassError
-cluster_set_log_level(cass, level)
-	Database::Cassandra::Client cass;
-	int level;
-	
-	CODE:
-		RETVAL = cass_cluster_set_log_level(cass->cluster, (CassLogLevel)level);
-	OUTPUT:
-		RETVAL
-
-CassError
-cluster_set_log_callback(cass, callback, data)
-	Database::Cassandra::Client cass;
-	SV *callback;
-	SV *data;
-	
-	CODE:
-		SV *sub = newSVsv(callback);
-		
-		if(cass->callback_log)
-		{
-			sv_2mortal((SV *)cass->callback_log);
-		}
-		
-		cass->callback_log     = (void *)sub;
-		cass->callback_log_arg = (void *)data;
-		
-		if(cass->perl_int == NULL)
-			cass->perl_int = Perl_get_context();
-		
-		RETVAL = cass_cluster_set_log_callback(cass->cluster, base_callback_log, (void *)cass);
-	OUTPUT:
-		RETVAL
-
-CassError
+void
 cluster_set_credentials(cass, username, password)
 	Database::Cassandra::Client cass;
 	const char* username;
 	const char* password;
 	
 	CODE:
-		RETVAL = cass_cluster_set_credentials(cass->cluster, username, password);
-	OUTPUT:
-		RETVAL
+		cass_cluster_set_credentials(cass->cluster, username, password);
 
-CassError
+void
 cluster_set_load_balance_round_robin(cass)
 	Database::Cassandra::Client cass;
 	
 	CODE:
-		RETVAL = cass_cluster_set_load_balance_round_robin(cass->cluster);
-	OUTPUT:
-		RETVAL
+		cass_cluster_set_load_balance_round_robin(cass->cluster);
 
 CassError
-cluster_set_load_balance_dc_aware(cass, local_dc)
+cluster_set_load_balance_dc_aware(cass, local_dc, used_hosts_per_remote_dc, allow_remote_dcs_for_local_cl)
 	Database::Cassandra::Client cass;
 	const char* local_dc;
+	unsigned used_hosts_per_remote_dc;
+	int allow_remote_dcs_for_local_cl;
 	
 	CODE:
-		RETVAL = cass_cluster_set_load_balance_dc_aware(cass->cluster, local_dc);
+		RETVAL = cass_cluster_set_load_balance_dc_aware(cass->cluster, local_dc,
+														used_hosts_per_remote_dc,
+														allow_remote_dcs_for_local_cl);
 	OUTPUT:
 		RETVAL
 
-CassFuture*
-cluster_connect(cass)
+void
+cluster_set_token_aware_routing(cass, enabled)
 	Database::Cassandra::Client cass;
+	int enabled;
 	
 	CODE:
-		RETVAL = cass_cluster_connect(cass->cluster);
-	OUTPUT:
-		RETVAL
+		cass_cluster_set_token_aware_routing(cass->cluster, enabled);
 
-CassFuture*
-cluster_connect_keyspace(cass, keyspace)
+void
+cass_cluster_set_tcp_nodelay(cass, enable)
 	Database::Cassandra::Client cass;
-	const char* keyspace;
+	int enable;
+	
 	
 	CODE:
-		RETVAL = cass_cluster_connect_keyspace(cass->cluster, keyspace);
-	OUTPUT:
-		RETVAL
+		cass_cluster_set_tcp_nodelay(cass->cluster, enable);
+
+void
+cluster_set_tcp_keepalive(cass, enable, delay_secs)
+	Database::Cassandra::Client cass;
+	int enable;
+	unsigned delay_secs;
+	
+	CODE:
+		cass_cluster_set_tcp_keepalive(cass->cluster, enable, delay_secs);
 
 void
 cluster_free(cass)
@@ -1205,6 +1185,33 @@ cluster_free(cass)
 #* Session
 #*
 #***********************************************************************************
+CassSession*
+session_new(void)
+	CODE:
+		RETVAL = cass_session_new();
+	OUTPUT:
+		RETVAL
+
+CassFuture*
+session_connect(cass, session)
+	Database::Cassandra::Client cass;
+	CassSession *session;
+	
+	CODE:
+		RETVAL = cass_session_connect(session, cass->cluster);
+	OUTPUT:
+		RETVAL
+
+CassFuture*
+session_connect_keyspace(cass, session, keyspace)
+	Database::Cassandra::Client cass;
+	CassSession *session;
+	const char* keyspace;
+	
+	CODE:
+		RETVAL = cass_session_connect_keyspace(session, cass->cluster, keyspace);
+	OUTPUT:
+		RETVAL
 
 CassFuture*
 session_close(cass, session)
@@ -1251,6 +1258,15 @@ session_execute_batch(cass, session, batch)
 	
 	CODE:
 		RETVAL = cass_session_execute_batch(session, batch);
+	OUTPUT:
+		RETVAL
+
+const CassSchema*
+session_get_schema(session, batch)
+	CassSession *session;
+	
+	CODE:
+		RETVAL = cass_session_get_schema(session);
 	OUTPUT:
 		RETVAL
 
@@ -1326,16 +1342,6 @@ future_wait_timed(cass, future, timeout)
 	OUTPUT:
 		RETVAL
 
-CassSession*
-future_get_session(cass, future)
-	Database::Cassandra::Client cass;
-	CassFuture *future;
-	
-	CODE:
-		RETVAL = cass_future_get_session(future);
-	OUTPUT:
-		RETVAL
-
 CassResult*
 future_get_result(cass, future)
 	Database::Cassandra::Client cass;
@@ -1406,6 +1412,30 @@ statement_free(cass, statement)
 	
 	CODE:
 		cass_statement_free(statement);
+
+CassError
+statement_add_key_index(cass, statement, index)
+	Database::Cassandra::Client cass;
+	CassStatement *statement;
+	SV *index;
+	
+	CODE:
+		RETVAL = cass_statement_add_key_index(statement, (size_t)SvIV(index));
+		
+	OUTPUT:
+		RETVAL
+
+CassError
+statement_set_keyspace(cass, statement, keyspace)
+	Database::Cassandra::Client cass;
+	CassStatement *statement;
+	const char *keyspace;
+	
+	CODE:
+		RETVAL = cass_statement_set_keyspace(statement, keyspace);
+		
+	OUTPUT:
+		RETVAL
 
 CassError
 statement_set_consistency(cass, statement, consistency)
@@ -1561,10 +1591,14 @@ statement_bind_uuid(cass, statement, index, value)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
 	SV *index;
-	char *value;
+	HV *value;
 	
 	CODE:
-		RETVAL = cass_statement_bind_uuid(statement, (cass_size_t)SvUV(index), (const unsigned char *)value);
+        SV **k_tv  = hv_fetch(value, "tv", 2, 0);
+		SV **k_csn = hv_fetch(value, "csn", 3, 0);
+		
+		CassUuid uuid = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
+		RETVAL = cass_statement_bind_uuid(statement, (cass_size_t)SvUV(index), uuid);
 	OUTPUT:
 		RETVAL
 
@@ -1746,10 +1780,14 @@ statement_bind_uuid_by_name(cass, statement, name, value)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
 	const char *name;
-	char *value;
+	HV *value;
 	
 	CODE:
-		RETVAL = cass_statement_bind_uuid_by_name(statement, name, (const unsigned char *)value);
+        SV **k_tv  = hv_fetch(value, "tv", 2, 0);
+		SV **k_csn = hv_fetch(value, "csn", 3, 0);
+		
+		CassUuid uuid = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
+		RETVAL = cass_statement_bind_uuid_by_name(statement, name, uuid);
 	OUTPUT:
 		RETVAL
 
@@ -2019,13 +2057,14 @@ CassError
 collection_append_uuid(cass, collection, value)
 	Database::Cassandra::Client cass;
 	CassCollection *collection;
-	SV *value;
+	HV *value;
 	
-	PREINIT:
-		STRLEN len = 0;
 	CODE:
-		char *uuid = SvPV(value, len);
-		RETVAL = cass_collection_append_uuid(collection, (unsigned char *)uuid);
+        SV **k_tv  = hv_fetch(value, "tv", 2, 0);
+		SV **k_csn = hv_fetch(value, "csn", 3, 0);
+		
+		CassUuid uuid = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
+		RETVAL = cass_collection_append_uuid(collection, uuid);
 	OUTPUT:
 		RETVAL
 
@@ -2363,16 +2402,17 @@ CassError
 value_get_uuid(cass, value, output)
 	Database::Cassandra::Client cass;
 	CassValue* value;
-	SV* output;
+	HV* output;
 	
 	CODE:
-		CassUuid s_output;
+		CassUuid *s_output;
 		RETVAL = cass_value_get_uuid(value, s_output);
 		
-		SV *n_str = sv_2mortal( newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH) );
-		STRLEN n_len;
+		SV **ha;
 		
-		sv_setpv(output, SvPV(n_str, n_len));
+		ha = hv_store(output, "tv", 2, newSViv(s_output->time_and_version), 0);
+		ha = hv_store(output, "csn", 3, newSViv(s_output->clock_seq_and_node), 0);
+		
 	OUTPUT:
 		RETVAL
 
@@ -2527,52 +2567,85 @@ value_secondary_sub_type(cass, collection)
 #*
 #************************************************************************************
 
-void
-uuid_generate_time(cass, output)
-	Database::Cassandra::Client cass;
-	SV* output;
+CassUuidGen*
+uuid_gen_new(void)
+	CODE:
+		RETVAL = cass_uuid_gen_new();
+	OUTPUT:
+		RETVAL
+
+CassUuidGen*
+uuid_gen_new_with_node(node)
+	SV *node;
 	
 	CODE:
-		CassUuid s_output;
-		cass_uuid_generate_time(s_output);
-		
-		SV *n_str = sv_2mortal( newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH) );
-		SvUTF8_off(n_str);
-		
-		STRLEN n_len;
-		sv_setpv(output, SvPV(n_str, n_len));
+		RETVAL = cass_uuid_gen_new_with_node((cass_uint64_t)SvIV(node));
+	OUTPUT:
+		RETVAL
 
 void
-uuid_from_time(cass, time, output)
-	Database::Cassandra::Client cass;
-	SV *time;
-	SV *output;
+uuid_gen_free(uuid_gen)
+	CassUuidGen* uuid_gen;
 	
 	CODE:
-		CassUuid s_output;
-		cass_uuid_from_time((cass_uint64_t)SvIV(time), s_output);
-		
-		SV *n_str = sv_2mortal( newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH) );
-		SvUTF8_off(n_str);
-		
-		STRLEN n_len;
-		sv_setpv(output, SvPV(n_str, n_len));
+		cass_uuid_gen_free(uuid_gen);
 
 void
-uuid_min_from_time(cass, time, output)
-	Database::Cassandra::Client cass;
-	SV *time;
-	SV *output;
+uuid_gen_time(uuid_gen, output)
+	CassUuidGen* uuid_gen;
+	HV *output;
 	
 	CODE:
-		CassUuid s_output;
-		cass_uuid_min_from_time((cass_uint64_t)SvIV(time), s_output);
+		CassUuid *s_output;
+		cass_uuid_gen_time(uuid_gen, s_output);
 		
-		SV *n_str = sv_2mortal( newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH) );
-		SvUTF8_off(n_str);
+		SV **ha;
 		
-		STRLEN n_len;
-		sv_setpv(output, SvPV(n_str, n_len));
+		ha = hv_store(output, "tv", 2, newSViv(s_output->time_and_version), 0);
+		ha = hv_store(output, "csn", 3, newSViv(s_output->clock_seq_and_node), 0);
+
+void
+uuid_gen_random(uuid_gen, output)
+	CassUuidGen* uuid_gen;
+	HV *output;
+	
+	CODE:
+		CassUuid *s_output;
+		cass_uuid_gen_random(uuid_gen, s_output);
+		
+		SV **ha;
+		
+		ha = hv_store(output, "tv", 2, newSViv(s_output->time_and_version), 0);
+		ha = hv_store(output, "csn", 3, newSViv(s_output->clock_seq_and_node), 0);
+
+void
+uuid_gen_from_time(uuid_gen, timestamp, output)
+	CassUuidGen* uuid_gen;
+	SV *timestamp;
+	HV *output;
+	
+	CODE:
+		CassUuid *s_output;
+		cass_uuid_gen_from_time(uuid_gen, (cass_uint64_t)SvIV(timestamp), s_output);
+		
+		SV **ha;
+		
+		ha = hv_store(output, "tv", 2, newSViv(s_output->time_and_version), 0);
+		ha = hv_store(output, "csn", 3, newSViv(s_output->clock_seq_and_node), 0);
+
+void
+uuid_min_from_time(timestamp, output)
+	SV *timestamp;
+	HV *output;
+	
+	CODE:
+		CassUuid *s_output;
+		cass_uuid_min_from_time((cass_uint64_t)SvIV(timestamp), s_output);
+		
+		SV **ha;
+		
+		ha = hv_store(output, "tv", 2, newSViv(s_output->time_and_version), 0);
+		ha = hv_store(output, "csn", 3, newSViv(s_output->clock_seq_and_node), 0);
 
 void
 uuid_max_from_time(cass, time, output)
@@ -2581,7 +2654,7 @@ uuid_max_from_time(cass, time, output)
 	SV *output;
 	
 	CODE:
-		CassUuid s_output;
+		CassUuid *s_output;
 		cass_uuid_max_from_time((cass_uint64_t)SvIV(time), s_output);
 		
 		SV *n_str = sv_2mortal( newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH) );
@@ -2590,60 +2663,73 @@ uuid_max_from_time(cass, time, output)
 		STRLEN n_len;
 		sv_setpv(output, SvPV(n_str, n_len));
 
-void
-uuid_generate_random(cass, output)
-	Database::Cassandra::Client cass;
-	SV* output;
+SV*
+uuid_timestamp(uuid)
+	HV *uuid;
 	
 	CODE:
-		CassUuid s_output;
-		cass_uuid_generate_random(s_output);
+        SV **k_tv  = hv_fetch(uuid, "tv", 2, 0);
+		SV **k_csn = hv_fetch(uuid, "csn", 3, 0);
 		
-		SV *n_str = sv_2mortal( newSVpv((char *)(s_output), CASS_UUID_STRING_LENGTH) );
+		CassUuid s_output = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
+		
+		RETVAL = newSViv(cass_uuid_timestamp(s_output));
+	
+	OUTPUT:
+		RETVAL
+
+SV*
+uuid_version(uuid)
+	HV *uuid;
+	
+	CODE:
+        SV **k_tv  = hv_fetch(uuid, "tv", 2, 0);
+		SV **k_csn = hv_fetch(uuid, "csn", 3, 0);
+		
+		CassUuid s_output = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
+		
+		RETVAL = newSViv(cass_uuid_version(s_output));
+	
+	OUTPUT:
+		RETVAL
+
+void
+uuid_string(uuid, output)
+	HV *uuid;
+	SV *output;
+	
+	CODE:
+        SV **k_tv  = hv_fetch(uuid, "tv", 2, 0);
+		SV **k_csn = hv_fetch(uuid, "csn", 3, 0);
+		
+		char *str = 0;
+		CassUuid s_output = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
+		cass_uuid_string(s_output, str);
+		
+		SV *n_str = sv_2mortal( newSVpv(str, CASS_UUID_STRING_LENGTH) );
 		SvUTF8_off(n_str);
 		
 		STRLEN n_len;
 		sv_setpv(output, SvPV(n_str, n_len));
 
-SV*
-uuid_timestamp(cass, uuid)
-	Database::Cassandra::Client cass;
-	char *uuid;
+CassError
+uuid_from_string(uuid_str, output)
+	const char* uuid_str;
+	HV *output;
 	
 	CODE:
-		cass_uint64_t timestamp = cass_uuid_timestamp((unsigned char *)uuid);
-		RETVAL = newSViv(timestamp);
+		char *str = 0;
+		CassUuid *s_output;
+		
+		RETVAL = cass_uuid_from_string(uuid_str, s_output);
+		
+		SV **ha;
+		
+		ha = hv_store(output, "tv", 2, newSViv(s_output->time_and_version), 0);
+		ha = hv_store(output, "csn", 3, newSViv(s_output->clock_seq_and_node), 0);
 	
 	OUTPUT:
 		RETVAL
-
-
-SV*
-uuid_version(cass, uuid)
-	Database::Cassandra::Client cass;
-	char *uuid;
-	
-	CODE:
-		cass_uint8_t version = cass_uuid_version((unsigned char *)uuid);
-		RETVAL = newSVpv((char *)&version, 1);
-	
-	OUTPUT:
-		RETVAL
-
-void
-uuid_string(cass, uuid, output)
-	Database::Cassandra::Client cass;
-	SV *output;
-	char *uuid;
-	
-	CODE:
-		char c_out[CASS_UUID_STRING_LENGTH];
-		cass_uuid_string((unsigned char *)uuid, c_out);
-		
-		SV *n_str = sv_2mortal( newSVpv(c_out, CASS_UUID_STRING_LENGTH) );
-		
-		STRLEN n_len;
-		sv_setpv(output, SvPV(n_str, n_len));
 
 
 #***********************************************************************************
@@ -2667,6 +2753,34 @@ error_desc(cass, error_code)
 #* Log level
 #*
 #***********************************************************************************
+void
+log_set_level(level)
+	int level;
+	
+	CODE:
+		cass_log_set_level((CassLogLevel)level);
+
+void
+log_set_callback(cass, callback, data)
+	Database::Cassandra::Client cass;
+	SV *callback;
+	SV *data;
+	
+	CODE:
+		SV *sub = newSVsv(callback);
+		
+		if(cass->callback_log)
+		{
+			sv_2mortal((SV *)cass->callback_log);
+		}
+		
+		cass->callback_log     = (void *)sub;
+		cass->callback_log_arg = (void *)data;
+		
+		if(cass->perl_int == NULL)
+			cass->perl_int = Perl_get_context();
+		
+		cass_log_set_callback(base_callback_log, (void *)cass);
 
 SV*
 log_level_string(cass, log_level)

@@ -1,3 +1,6 @@
+0.61	  Mon Jan 12 2015 17:17:17 GMT+0300
+	  sync with current version libcassandra RC 1
+	
 0.57	  Thu Dec 25 2014 18:54:18 GMT+0300
 	  fix problem with counter int32 => int64
 
