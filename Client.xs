@@ -49,7 +49,7 @@ static inline void base_callback_future(CassFuture* future, void *arg)
 		sv_setref_pv(future_prl, "CassFuturePtr", (void*)future);
 		
 		PUSHMARK(sp);
-			XPUSHs(SvRV(future_prl));
+			XPUSHs(future_prl);
 			
 			if(cass->callback_future_arg)
 			{
@@ -284,6 +284,461 @@ void *sv_by_type_cass[CASS_VALUE_TYPE_SET] = {
 	0
 };
 
+SV * sm_build_result(CassStatement *statement, CassFuture *future, CassError *rc)
+{
+	AV* array = newAV();
+	
+	if(statement && future)
+	{
+		if((*rc = cass_future_error_code(future)) == CASS_OK)
+		{
+			const CassRow *row = NULL;
+			const CassResult *result = cass_future_get_result(future);
+			CassIterator *iterator   = cass_iterator_from_result(result);
+			
+			cass_size_t column_id;
+			cass_size_t column_count = cass_result_column_count(result);
+			
+			SV **ha;
+			
+			while(cass_iterator_next(iterator))
+			{
+				row = cass_iterator_get_row(iterator);
+				
+				HV *hash = newHV();
+				SV *val;
+				
+				for(column_id = 0; column_id < column_count; column_id++)
+				{
+					const CassValue *column = cass_row_get_column(row, column_id);
+					CassString column_name  = cass_result_column_name(result, column_id);
+					
+					if(cass_value_is_null(column))
+					{
+						ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+						continue;
+					}
+					
+					switch (cass_result_column_type(result, column_id))
+					{
+						case CASS_VALUE_TYPE_UNKNOWN:
+						{
+							ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							break;
+						}
+						case CASS_VALUE_TYPE_CUSTOM:
+						{
+							CassBytes s_output;
+							val = &PL_sv_undef;
+							
+							if(cass_value_get_bytes(column, &s_output) == CASS_OK)
+							{
+								if(s_output.size)
+								{
+									val = newSVpv((char *)(s_output.data), s_output.size);
+								}
+								else
+									val = newSVpv(&term_null, 0);
+								
+								SvUTF8_on(val);
+							}
+							
+							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_ASCII:
+						{
+							CassString s_output;
+							val = &PL_sv_undef;
+							
+							if(cass_value_get_string(column, &s_output) == CASS_OK)
+							{
+								if(s_output.length)
+								{
+									val = newSVpv(s_output.data, s_output.length);
+								}
+								else
+									val = newSVpv(&term_null, 0);
+								
+								SvUTF8_on(val);
+							}
+							
+							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_BIGINT:
+						{
+							cass_int64_t s_output;
+							if(cass_value_get_int64(column, &s_output) == CASS_OK)
+							{
+								val = newSViv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_BLOB:
+						{
+							CassBytes s_output;
+							val = &PL_sv_undef;
+							
+							if(cass_value_get_bytes(column, &s_output) == CASS_OK)
+							{
+								if(s_output.size)
+								{
+									val = newSVpv((char *)(s_output.data), s_output.size);
+								}
+								else
+									val = newSVpv(&term_null, 0);
+								
+								SvUTF8_on(val);
+							}
+							
+							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_BOOLEAN:
+						{
+							cass_bool_t s_output;
+							if(cass_value_get_bool(column, &s_output) == CASS_OK)
+							{
+								val = newSViv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_COUNTER:
+						{
+							cass_int64_t s_output;
+							if(cass_value_get_int64(column, &s_output) == CASS_OK)
+							{
+								val = newSViv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_DECIMAL:
+						{
+							CassDecimal s_output;
+							if(cass_value_get_decimal(column, &s_output)  == CASS_OK)
+							{
+								HV *hash_value = newHV();
+								ha = hv_store(hash_value, "scale", 5, newSViv(s_output.scale), 0);
+								ha = hv_store(hash_value, "bytes", 5, newSVpv((char *)(s_output.varint.data), s_output.varint.size), 0);
+								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc( (SV *)hash_value ), 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_DOUBLE:
+						{
+							cass_double_t s_output;
+							if(cass_value_get_double(column, &s_output) == CASS_OK)
+							{
+								val = newSVnv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_FLOAT:
+						{
+							cass_float_t s_output;
+							if(cass_value_get_float(column, &s_output) == CASS_OK)
+							{
+								val = newSVnv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_INT:
+						{
+							cass_int32_t s_output;
+							if(cass_value_get_int32(column, &s_output) == CASS_OK)
+							{
+								val = newSViv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_TEXT:
+						{
+							CassString s_output;
+							val = &PL_sv_undef;
+							
+							if(cass_value_get_string(column, &s_output) == CASS_OK)
+							{
+								if(s_output.length)
+								{
+									val = newSVpv(s_output.data, s_output.length);
+								}
+								else
+									val = newSVpv(&term_null, 0);
+								
+								SvUTF8_on(val);
+							}
+							
+							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_TIMESTAMP:
+						{
+							cass_int64_t s_output;
+							if(cass_value_get_int64(column, &s_output) == CASS_OK)
+							{
+								val = newSViv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_UUID:
+						{
+							CassUuid s_output;
+							if(cass_value_get_uuid(column, &s_output) == CASS_OK)
+							{
+								char uuid[(CASS_UUID_STRING_LENGTH + 1)] = {0};
+								cass_uuid_string(s_output, uuid);
+								
+								val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_VARCHAR:
+						{
+							CassString s_output;
+							val = &PL_sv_undef;
+							
+							if(cass_value_get_string(column, &s_output) == CASS_OK)
+							{
+								if(s_output.length)
+								{
+									val = newSVpv(s_output.data, s_output.length);
+								}
+								else
+									val = newSVpv(&term_null, 0);
+								
+								SvUTF8_on(val);
+							}
+							
+							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_VARINT:
+						{
+							cass_int32_t s_output;
+							if(cass_value_get_int32(column, &s_output) == CASS_OK)
+							{
+								val = newSViv(s_output);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_TIMEUUID:
+						{
+							CassUuid s_output;
+							if(cass_value_get_uuid(column, &s_output) == CASS_OK)
+							{
+								char uuid[(CASS_UUID_STRING_LENGTH + 1)] = {0};
+								cass_uuid_string(s_output, uuid);
+								
+								val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
+								SvUTF8_on(val);
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_INET:
+						{
+							CassInet s_output;
+							if(cass_value_get_inet(column, &s_output) == CASS_OK)
+							{
+								if(s_output.address_length)
+									val = newSVpv((char *)(s_output.address), s_output.address_length);
+								else
+									val = newSVpv(&term_null, 0);
+								
+								SvUTF8_on(val);
+								
+								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							}
+							else
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							}
+							
+							break;
+						}
+						case CASS_VALUE_TYPE_LIST:
+						{
+							CassIterator *iterator_l = cass_iterator_from_collection(column);
+							CassValueType type_key = cass_value_primary_sub_type(column);
+							
+							if(type_key > CASS_VALUE_TYPE_INET)
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+							}
+							
+							AV* array_list = newAV();
+							
+							while (cass_iterator_next(iterator_l))
+							{
+								SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
+									(cass_iterator_get_value(iterator_l));
+								
+								av_push(array_list, sv_key); 
+							}
+							cass_iterator_free(iterator_l);
+							
+							ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
+							break;
+						}
+						case CASS_VALUE_TYPE_MAP:
+						{
+							CassIterator* iterator_l = cass_iterator_from_map(column);
+							
+							CassValueType type_key = cass_value_primary_sub_type(column);
+							CassValueType type_value = cass_value_secondary_sub_type(column);
+							
+							if(type_key > CASS_VALUE_TYPE_INET || type_value > CASS_VALUE_TYPE_INET)
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+							}
+							
+							HV *hash_value = newHV();
+							STRLEN len;
+							
+							while (cass_iterator_next(iterator_l))
+							{
+								SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
+									(cass_iterator_get_map_key(iterator_l));
+								
+								SV *sv_value = (*((sv_by_type_cass_func)sv_by_type_cass[type_value]))
+									(cass_iterator_get_map_value(iterator_l));
+								
+								char *key_c = SvPV( sv_key, len );
+								
+								ha = hv_store(hash_value, key_c, len, sv_value, 0);
+							}
+							cass_iterator_free(iterator_l);
+							
+							ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)hash_value), 0);
+							break;
+						}
+						case CASS_VALUE_TYPE_SET:
+						{
+							CassIterator *iterator_l = cass_iterator_from_collection(column);
+							CassValueType type_key = cass_value_primary_sub_type(column);
+							
+							if(type_key > CASS_VALUE_TYPE_INET)
+							{
+								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								break;
+							}
+							
+							AV* array_list = newAV();
+							
+							while (cass_iterator_next(iterator_l))
+							{
+								SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
+									(cass_iterator_get_value(iterator_l));
+								
+								av_push(array_list, sv_key); 
+							}
+							cass_iterator_free(iterator_l);
+							
+							ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
+							break;
+						}
+						default:
+							ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							break;
+					}
+				}
+				
+				av_push(array, newRV_noinc((SV*)hash));
+			}
+			
+			cass_result_free(result);
+			cass_iterator_free(iterator);
+		}
+	}
+	else
+		*rc = CASS_ERROR_LIB_NULL_VALUE;
+	
+	SvUTF8_on((SV *)array);
+	
+	return newRV_noinc((SV *)array);
+}
+
 //		if(SvROK(sv_bind) && SvTYPE(SvRV(sv_bind)) == SVt_PVAV)
 //		{
 //			AV* array = (AV*)SvRV(sv_bind);
@@ -460,464 +915,36 @@ sm_select_query(cass, statement, binds, out_status)
 	
 	CODE:
 		CassError rc = CASS_OK;
+		
+		CassFuture *future = cass_session_execute(cass->session, statement);
+		cass_future_wait(future);
+		
+		SV *res = sm_build_result(statement, future, &rc);
+		
+		cass_future_free(future);
+		
 		sv_setiv(out_status, rc);
 		
-		AV* array = newAV();
+		RETVAL = res;
+	OUTPUT:
+		RETVAL
+
+SV*
+sm_select_query_by_future(cass, statement, future, binds, out_status)
+	Database::Cassandra::Client cass;
+	CassStatement *statement;
+	CassFuture *future;
+	SV *binds;
+	SV *out_status;
+	
+	CODE:
+		CassError rc = CASS_OK;
 		
-		if(statement)
-		{
-			CassFuture *future = cass_session_execute(cass->session, statement);
-			cass_future_wait(future);
-			
-			if((rc = cass_future_error_code(future)) == CASS_OK)
-			{
-				const CassRow *row = NULL;
-				const CassResult *result = cass_future_get_result(future);
-				CassIterator *iterator   = cass_iterator_from_result(result);
-				
-				cass_size_t column_id;
-				cass_size_t column_count = cass_result_column_count(result);
-				
-				SV **ha;
-				
-				while(cass_iterator_next(iterator))
-				{
-					row = cass_iterator_get_row(iterator);
-					
-					HV *hash = newHV();
-					SV *val;
-					
-					for(column_id = 0; column_id < column_count; column_id++)
-					{
-						const CassValue *column = cass_row_get_column(row, column_id);
-						CassString column_name  = cass_result_column_name(result, column_id);
-						
-						if(cass_value_is_null(column))
-						{
-							ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-							continue;
-						}
-						
-						switch (cass_result_column_type(result, column_id))
-						{
-							case CASS_VALUE_TYPE_UNKNOWN:
-							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								break;
-							}
-							case CASS_VALUE_TYPE_CUSTOM:
-							{
-								CassBytes s_output;
-								val = &PL_sv_undef;
-								
-								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
-								{
-									if(s_output.size)
-									{
-										val = newSVpv((char *)(s_output.data), s_output.size);
-									}
-									else
-										val = newSVpv(&term_null, 0);
-									
-									SvUTF8_on(val);
-								}
-								
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_ASCII:
-							{
-								CassString s_output;
-								val = &PL_sv_undef;
-								
-								if(cass_value_get_string(column, &s_output) == CASS_OK)
-								{
-									if(s_output.length)
-									{
-										val = newSVpv(s_output.data, s_output.length);
-									}
-									else
-										val = newSVpv(&term_null, 0);
-									
-									SvUTF8_on(val);
-								}
-								
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_BIGINT:
-							{
-								cass_int64_t s_output;
-								if(cass_value_get_int64(column, &s_output) == CASS_OK)
-								{
-									val = newSViv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_BLOB:
-							{
-								CassBytes s_output;
-								val = &PL_sv_undef;
-								
-								if(cass_value_get_bytes(column, &s_output) == CASS_OK)
-								{
-									if(s_output.size)
-									{
-										val = newSVpv((char *)(s_output.data), s_output.size);
-									}
-									else
-										val = newSVpv(&term_null, 0);
-									
-									SvUTF8_on(val);
-								}
-								
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_BOOLEAN:
-							{
-								cass_bool_t s_output;
-								if(cass_value_get_bool(column, &s_output) == CASS_OK)
-								{
-									val = newSViv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_COUNTER:
-							{
-								cass_int64_t s_output;
-								if(cass_value_get_int64(column, &s_output) == CASS_OK)
-								{
-									val = newSViv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_DECIMAL:
-							{
-								CassDecimal s_output;
-								if(cass_value_get_decimal(column, &s_output)  == CASS_OK)
-								{
-									HV *hash_value = newHV();
-									ha = hv_store(hash_value, "scale", 5, newSViv(s_output.scale), 0);
-									ha = hv_store(hash_value, "bytes", 5, newSVpv((char *)(s_output.varint.data), s_output.varint.size), 0);
-									ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc( (SV *)hash_value ), 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_DOUBLE:
-							{
-								cass_double_t s_output;
-								if(cass_value_get_double(column, &s_output) == CASS_OK)
-								{
-									val = newSVnv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_FLOAT:
-							{
-								cass_float_t s_output;
-								if(cass_value_get_float(column, &s_output) == CASS_OK)
-								{
-									val = newSVnv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_INT:
-							{
-								cass_int32_t s_output;
-								if(cass_value_get_int32(column, &s_output) == CASS_OK)
-								{
-									val = newSViv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_TEXT:
-							{
-								CassString s_output;
-								val = &PL_sv_undef;
-								
-								if(cass_value_get_string(column, &s_output) == CASS_OK)
-								{
-									if(s_output.length)
-									{
-										val = newSVpv(s_output.data, s_output.length);
-									}
-									else
-										val = newSVpv(&term_null, 0);
-									
-									SvUTF8_on(val);
-								}
-								
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_TIMESTAMP:
-							{
-								cass_int64_t s_output;
-								if(cass_value_get_int64(column, &s_output) == CASS_OK)
-								{
-									val = newSViv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_UUID:
-							{
-								CassUuid s_output;
-								if(cass_value_get_uuid(column, &s_output) == CASS_OK)
-								{
-									char uuid[(CASS_UUID_STRING_LENGTH + 1)] = {0};
-									cass_uuid_string(s_output, uuid);
-									
-									val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_VARCHAR:
-							{
-								CassString s_output;
-								val = &PL_sv_undef;
-								
-								if(cass_value_get_string(column, &s_output) == CASS_OK)
-								{
-									if(s_output.length)
-									{
-										val = newSVpv(s_output.data, s_output.length);
-									}
-									else
-										val = newSVpv(&term_null, 0);
-									
-									SvUTF8_on(val);
-								}
-								
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_VARINT:
-							{
-								cass_int32_t s_output;
-								if(cass_value_get_int32(column, &s_output) == CASS_OK)
-								{
-									val = newSViv(s_output);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_TIMEUUID:
-							{
-								CassUuid s_output;
-								if(cass_value_get_uuid(column, &s_output) == CASS_OK)
-								{
-									char uuid[(CASS_UUID_STRING_LENGTH + 1)] = {0};
-									cass_uuid_string(s_output, uuid);
-									
-									val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
-									SvUTF8_on(val);
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_INET:
-							{
-								CassInet s_output;
-								if(cass_value_get_inet(column, &s_output) == CASS_OK)
-								{
-									if(s_output.address_length)
-										val = newSVpv((char *)(s_output.address), s_output.address_length);
-									else
-										val = newSVpv(&term_null, 0);
-									
-									SvUTF8_on(val);
-									
-									ha = hv_store(hash, column_name.data, column_name.length, val, 0);
-								}
-								else
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								}
-								
-								break;
-							}
-							case CASS_VALUE_TYPE_LIST:
-							{
-								CassIterator *iterator_l = cass_iterator_from_collection(column);
-								CassValueType type_key = cass_value_primary_sub_type(column);
-								
-								if(type_key > CASS_VALUE_TYPE_INET)
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-									break;
-								}
-								
-								AV* array_list = newAV();
-								
-								while (cass_iterator_next(iterator_l))
-								{
-									SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
-										(cass_iterator_get_value(iterator_l));
-									
-									av_push(array_list, sv_key); 
-								}
-								cass_iterator_free(iterator_l);
-								
-								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
-								break;
-							}
-							case CASS_VALUE_TYPE_MAP:
-							{
-								CassIterator* iterator_l = cass_iterator_from_map(column);
-								
-								CassValueType type_key = cass_value_primary_sub_type(column);
-								CassValueType type_value = cass_value_secondary_sub_type(column);
-								
-								if(type_key > CASS_VALUE_TYPE_INET || type_value > CASS_VALUE_TYPE_INET)
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-									break;
-								}
-								
-								HV *hash_value = newHV();
-								STRLEN len;
-								
-								while (cass_iterator_next(iterator_l))
-								{
-									SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
-										(cass_iterator_get_map_key(iterator_l));
-									
-									SV *sv_value = (*((sv_by_type_cass_func)sv_by_type_cass[type_value]))
-										(cass_iterator_get_map_value(iterator_l));
-									
-									char *key_c = SvPV( sv_key, len );
-									
-									ha = hv_store(hash_value, key_c, len, sv_value, 0);
-								}
-								cass_iterator_free(iterator_l);
-								
-								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)hash_value), 0);
-								break;
-							}
-							case CASS_VALUE_TYPE_SET:
-							{
-								CassIterator *iterator_l = cass_iterator_from_collection(column);
-								CassValueType type_key = cass_value_primary_sub_type(column);
-								
-								if(type_key > CASS_VALUE_TYPE_INET)
-								{
-									ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-									break;
-								}
-								
-								AV* array_list = newAV();
-								
-								while (cass_iterator_next(iterator_l))
-								{
-									SV *sv_key = (*((sv_by_type_cass_func)sv_by_type_cass[type_key]))
-										(cass_iterator_get_value(iterator_l));
-									
-									av_push(array_list, sv_key); 
-								}
-								cass_iterator_free(iterator_l);
-								
-								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
-								break;
-							}
-							default:
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-								break;
-						}
-					}
-					
-					av_push(array, newRV_noinc((SV*)hash));
-				}
-				
-				cass_result_free(result);
-				cass_iterator_free(iterator);
-			}
-			
-			cass_future_free(future);
-		}
-		else
-			sv_setiv(out_status, CASS_ERROR_LIB_NULL_VALUE);
+		SV *res = sm_build_result(statement, future, &rc);
 		
-		SvUTF8_on((SV *)array);
+		sv_setiv(out_status, rc);
 		
-		RETVAL = newRV_noinc((SV *)array);
+		RETVAL = res;
 	OUTPUT:
 		RETVAL
 
