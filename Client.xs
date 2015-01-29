@@ -29,7 +29,7 @@ cassandra_t;
 
 typedef struct
 {
-	PerlInterpreter *perl_int;
+	cassandra_t *cass;
 	
 	void *callback;
 	void *callback_arg;
@@ -40,12 +40,13 @@ typedef cassandra_t * Database__Cassandra__Client;
 
 static inline void base_callback_future(CassFuture* future, void *arg)
 {
-	callback_data_t *calldata = (callback_data_t *)arg;
-	
 	pthread_mutex_lock(&mutex);
 	
-	dTHXa(calldata->perl_int);
-	PERL_SET_CONTEXT( calldata->perl_int );
+	callback_data_t *calldata = (callback_data_t *)arg;
+	cassandra_t *cass = calldata->cass;
+	
+	dTHXa(cass->perl_int);
+	PERL_SET_CONTEXT(cass->perl_int);
 	{
 		dSP;
 		
@@ -77,9 +78,9 @@ static inline void base_callback_future(CassFuture* future, void *arg)
 
 static inline void base_callback_log(const CassLogMessage* message, void* data)
 {
-	cassandra_t *cass = (cassandra_t *)data;
-	
 	pthread_mutex_lock(&mutex);
+	
+	cassandra_t *cass = (cassandra_t *)data;
 	
 	dTHXa(cass->perl_int);
 	PERL_SET_CONTEXT( cass->perl_int );
@@ -970,6 +971,7 @@ cluster_new(name = 0)
 		cass->cluster          = cass_cluster_new();
 		cass->callback_log     = NULL;
 		cass->callback_log_arg = NULL;
+		cass->perl_int         = NULL;
 		cass->session          = NULL;
 		
 		RETVAL = cass;
@@ -1350,7 +1352,10 @@ future_set_callback(cass, future, callback, data = &PL_sv_undef)
 		
 		calldata->callback     = (void *)sub;
 		calldata->callback_arg = (void *)data;
-		calldata->perl_int     = Perl_get_context();
+		calldata->cass         = cass;
+		
+		if(cass->perl_int == NULL)
+			cass->perl_int = Perl_get_context();
 		
 		RETVAL = cass_future_set_callback(future, base_callback_future, (void *)calldata);
 	OUTPUT:
