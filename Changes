@@ -1,8 +1,8 @@
 0.71	  Thu Jan 29 2015 14:34:17 GMT+0300
 	  Changed Simple methods
 	  rename sm_select_query_by_future to sm_result_from_future
-	  now, method sm_prepare return CassPrepare, not CassStatement
-	  now, method sm_finish_query aka future_free
+	  now, method sm_prepare return CassPrepared, not CassStatement
+	  now, method sm_finish_query aka prepared_free
 	  changed Future callback
 	  
 0.63	  Tue Jan 27 2015 18:07:17 GMT+0300

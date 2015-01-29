@@ -917,13 +917,13 @@ sm_result_from_future(cass, future, out_status)
 		RETVAL
 
 void
-sm_finish_query(cass, future)
+sm_finish_query(cass, prepared)
 	Database::Cassandra::Client cass;
-	CassFuture *future;
+	CassPrepared *prepared;
 	
 	CODE:
 		if(future)
-			cass_future_free(future);
+			cass_prepared_free(prepared);
 
 void
 sm_destroy(cass)
