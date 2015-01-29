@@ -878,10 +878,9 @@ sm_prepare(cass, query, out_status)
 		RETVAL
 
 SV*
-sm_select_query(cass, statement, binds, out_status)
+sm_select_query(cass, statement, out_status)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
-	SV *binds;
 	SV *out_status;
 	
 	CODE:
