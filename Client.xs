@@ -17,28 +17,35 @@ const char term_null = '\0';
 typedef struct
 {
 	CassCluster *cluster;
-	void *callback_future;
-	void *callback_future_arg;
+	PerlInterpreter *perl_int;
+	
 	void *callback_log;
 	void *callback_log_arg;
-	
-	PerlInterpreter *perl_int;
 	
 	// for simple api
 	CassSession *session;
 }
 cassandra_t;
 
+typedef struct
+{
+	PerlInterpreter *perl_int;
+	
+	void *callback;
+	void *callback_arg;
+}
+callback_data_t;
+
 typedef cassandra_t * Database__Cassandra__Client;
 
 static inline void base_callback_future(CassFuture* future, void *arg)
 {
-	cassandra_t *cass = (cassandra_t *)arg;
+	callback_data_t *calldata = (callback_data_t *)arg;
 	
 	pthread_mutex_lock(&mutex);
 	
-	dTHXa(cass->perl_int);
-	PERL_SET_CONTEXT( cass->perl_int );
+	dTHXa(calldata->perl_int);
+	PERL_SET_CONTEXT( calldata->perl_int );
 	{
 		dSP;
 		
@@ -51,13 +58,15 @@ static inline void base_callback_future(CassFuture* future, void *arg)
 		PUSHMARK(sp);
 			XPUSHs(future_prl);
 			
-			if(cass->callback_future_arg)
+			if(calldata->callback_arg)
 			{
-				XPUSHs(cass->callback_future_arg);
+				XPUSHs(calldata->callback_arg);
 			}
 		PUTBACK;
 		
-		call_sv((SV *)cass->callback_future, G_SCALAR);
+		call_sv((SV *)calldata->callback, G_SCALAR);
+		
+		free(calldata);
 		
 		FREETMPS;
 		LEAVE;
@@ -284,11 +293,11 @@ void *sv_by_type_cass[CASS_VALUE_TYPE_SET] = {
 	0
 };
 
-SV * sm_build_result(CassStatement *statement, CassFuture *future, CassError *rc)
+SV * sm_build_result(CassFuture *future, CassError *rc)
 {
 	AV* array = newAV();
 	
-	if(statement && future)
+	if(future)
 	{
 		if((*rc = cass_future_error_code(future)) == CASS_OK)
 		{
@@ -793,44 +802,6 @@ sm_connect(cass, contact_points)
 	OUTPUT:
 		RETVAL
 
-CassStatement*
-sm_prepare(cass, query, out_status)
-	Database::Cassandra::Client cass;
-	SV *query;
-	SV *out_status;
-	
-	PREINIT:
-		STRLEN len = 0;
-	CODE:
-		sv_setiv(out_status, CASS_OK);
-		
-		char *c_query = SvPV( query, len );
-		CassString cass_query = cass_string_init(c_query);
-		
-		CassFuture *future = cass_session_prepare(cass->session, cass_query);
-		cass_future_wait(future);
-		
-		CassStatement *statement = NULL;
-		CassPrepared *prepared = NULL;
-		CassError rc = cass_future_error_code(future);
-		
-		if(rc == CASS_OK)
-		{
-			prepared = (CassPrepared *)cass_future_get_prepared(future);
-			statement = cass_prepared_bind(prepared);
-			cass_prepared_free(prepared);
-		}
-		else
-		{
-			sv_setiv(out_status, rc);
-		}
-		cass_future_free(future);
-		
-		RETVAL = statement;
-		
-	OUTPUT:
-		RETVAL
-
 CassError
 sm_execute_query(cass, statement)
 	Database::Cassandra::Client cass;
@@ -871,7 +842,7 @@ sm_execute_query_no_wait(cass, statement)
 		RETVAL
 
 CassPrepared*
-sm_create_prepare(cass, query, out_status)
+sm_prepare(cass, query, out_status)
 	Database::Cassandra::Client cass;
 	SV *query;
 	SV *out_status;
@@ -905,7 +876,6 @@ sm_create_prepare(cass, query, out_status)
 	OUTPUT:
 		RETVAL
 
-
 SV*
 sm_select_query(cass, statement, binds, out_status)
 	Database::Cassandra::Client cass;
@@ -919,7 +889,7 @@ sm_select_query(cass, statement, binds, out_status)
 		CassFuture *future = cass_session_execute(cass->session, statement);
 		cass_future_wait(future);
 		
-		SV *res = sm_build_result(statement, future, &rc);
+		SV *res = sm_build_result(future, &rc);
 		
 		cass_future_free(future);
 		
@@ -930,17 +900,15 @@ sm_select_query(cass, statement, binds, out_status)
 		RETVAL
 
 SV*
-sm_select_query_by_future(cass, statement, future, binds, out_status)
+sm_result_from_future(cass, future, out_status)
 	Database::Cassandra::Client cass;
-	CassStatement *statement;
 	CassFuture *future;
-	SV *binds;
 	SV *out_status;
 	
 	CODE:
 		CassError rc = CASS_OK;
 		
-		SV *res = sm_build_result(statement, future, &rc);
+		SV *res = sm_build_result(future, &rc);
 		
 		sv_setiv(out_status, rc);
 		
@@ -949,15 +917,13 @@ sm_select_query_by_future(cass, statement, future, binds, out_status)
 		RETVAL
 
 void
-sm_finish_query(cass, statement)
+sm_finish_query(cass, future)
 	Database::Cassandra::Client cass;
-	CassStatement *statement;
+	CassFuture *future;
 	
 	CODE:
-		if(statement)
-		{
-			cass_statement_free(statement);
-		}
+		if(future)
+			cass_future_free(future);
 
 void
 sm_destroy(cass)
@@ -1001,13 +967,10 @@ cluster_new(name = 0)
 	CODE:
 		cassandra_t *cass = malloc(sizeof(cassandra_t));
 		
-		cass->cluster = cass_cluster_new();
-		cass->callback_future     = NULL;
-		cass->callback_future_arg = NULL;
-		cass->callback_log        = NULL;
-		cass->callback_log_arg    = NULL;
-		cass->perl_int            = NULL;
-		cass->session             = NULL;
+		cass->cluster          = cass_cluster_new();
+		cass->callback_log     = NULL;
+		cass->callback_log_arg = NULL;
+		cass->session          = NULL;
 		
 		RETVAL = cass;
 	OUTPUT:
@@ -1383,18 +1346,13 @@ future_set_callback(cass, future, callback, data = &PL_sv_undef)
 	CODE:
 		SV *sub = newSVsv(callback);
 		
-		if(cass->callback_future)
-		{
-			sv_2mortal((SV *)cass->callback_future);
-		}
+		callback_data_t *calldata = malloc(sizeof(callback_data_t));
 		
-		cass->callback_future = (void *)sub;
-		cass->callback_future_arg = (void *)data;
+		calldata->callback     = (void *)sub;
+		calldata->callback_arg = (void *)data;
+		calldata->perl_int     = Perl_get_context();
 		
-		if(cass->perl_int == NULL)
-			cass->perl_int = Perl_get_context();
-		
-		RETVAL = cass_future_set_callback(future, base_callback_future, (void *)cass);
+		RETVAL = cass_future_set_callback(future, base_callback_future, (void *)calldata);
 	OUTPUT:
 		RETVAL
 
@@ -1708,14 +1666,13 @@ statement_bind_inet(cass, statement, index, value)
 		RETVAL
 
 CassError
-statement_bind_decimal(cass, statement, index, value)
+statement_bind_decimal(cass, statement, index, myhash)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
 	SV *index;
-	SV *value;
+	HV *myhash;
 	
 	CODE:
-        HV *myhash = (HV *)SvRV(value);
         SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
 		SV **k_varint = hv_fetch(myhash, "varint", 6, 0);
 		
@@ -1897,14 +1854,13 @@ statement_bind_inet_by_name(cass, statement, name, value)
 		RETVAL
 
 CassError
-statement_bind_decimal_by_name(cass, statement, name, value)
+statement_bind_decimal_by_name(cass, statement, name, myhash)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
 	const char *name;
-	SV *value;
+	HV *myhash;
 	
 	CODE:
-        HV *myhash = (HV *)SvRV(value);
         SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
 		SV **k_varint = hv_fetch(myhash, "varint", 6, 0);
 		
@@ -2173,14 +2129,12 @@ collection_append_inet(cass, collection, value)
 		RETVAL
 
 CassError
-collection_append_decimal(cass, collection, value)
+collection_append_decimal(cass, collection, myhash)
 	Database::Cassandra::Client cass;
 	CassCollection *collection;
-	SV *value;
+	HV *myhash;
 	
 	CODE:
-        HV *myhash = (HV *)SvRV(value);
-		
         SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
 		SV **k_varint = hv_fetch(myhash, "varint", 6, 0);
 		

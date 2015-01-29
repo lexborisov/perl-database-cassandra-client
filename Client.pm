@@ -5,7 +5,7 @@ use strict;
 use vars qw($AUTOLOAD $VERSION $ABSTRACT @ISA @EXPORT);
 
 BEGIN {
-	$VERSION = 0.63;
+	$VERSION = 0.71;
 	$ABSTRACT = "Cassandra client (XS for libcassandra)";
 	
 	@ISA = qw(Exporter DynaLoader);
@@ -61,45 +61,52 @@ Simple API:
  use Database::Cassandra::Client;
 
  my $cass = Database::Cassandra::Client->cluster_new();
- $cass->cluster_set_num_threads_io(1);
  
  my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
  die $cass->error_desc($status) if $status != CASS_OK;
  
  # insert
  {
- 	my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
+ 	my $prepare = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
  	die $cass->error_desc($status) if $status != CASS_OK;
  	
 	for my $id (1..15)
 	{
-		$cass->statement_bind_int64($sth, 0, $id);
-		$cass->statement_bind_string($sth, 1, "test body bind: $id");
+		my $statement = $cass->prepared_bind($prepare);
 		
-		$status = $cass->sm_execute_query($sth);
+		$cass->statement_bind_int64($statement, 0, $id);
+		$cass->statement_bind_string($statement, 1, "test body bind: $id");
+		
+		$status = $cass->sm_execute_query($statement);
 		die $cass->error_desc($status) if $status != CASS_OK;
+		
+		$cass->statement_free($statement);
 	}
 	
-	$cass->sm_finish_query($sth);
+	$cass->sm_finish_query($prepare);
  }
  
  # get row
  {
- 	my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
+ 	my $prepare = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
  	die $cass->error_desc($status) if $status != CASS_OK;
  	
 	for my $id (1..15)
 	{
-		$cass->statement_bind_int64($sth, 0, $id);
+		my $statement = $cass->prepared_bind($prepare);
 		
-		my $data = $cass->sm_select_query($sth, undef, $status);
+		$cass->statement_bind_int64($statement, 0, $id);
+		
+		my $data = $cass->sm_select_query($statement, $status);
 		die $cass->error_desc($status) if $status != CASS_OK;
 		
 		print $data->[0]->{yauid}, ": ", $data->[0]->{body}, "\n"
 			if ref $data && exists $data->[0];
+		
+		$cass->statement_free($statement);
  	}
 	
-	$cass->sm_finish_query($sth);
+	$cass->sm_finish_query($prepare);
  }
  
  $cass->sm_destroy();
@@ -108,61 +115,6 @@ Simple API:
 Base API:
 
  use Database::Cassandra::Client;
- 
- my $status = CASS_OK;
- 
- my $cass = Database::Cassandra::Client->cluster_new();
- 
- $status = $cass->cluster_set_num_threads_io(1);
- warn $cass->error_desc($status) if $status != CASS_OK;
- 
- $cass->cluster_set_contact_points("node1.domain.ru,node2.domain.ru");
- 
- my $connect_future = $cass->cluster_connect();
- 
- if(($status = $cass->future_error_code($connect_future)) == CASS_OK)
- {
- 	my $session   = $cass->future_get_session($connect_future);
- 
- 	my $query     = $cass->string_init("select * from tw.docs limit 1");
- 	my $statement = $cass->statement_new($query, 0);
- 	
-  	my $result_future = $cass->session_execute($session, $statement);
- 	
-	if(($status = $cass->future_error_code($result_future)) == CASS_OK)
-	{
-		my $result = $cass->future_get_result($result_future);
-		my $rows   = $cass->iterator_from_result($result);
-		
-		while( $cass->iterator_next($rows) )
-		{
-			my $row   = $cass->iterator_get_row($rows);
-			my $value = $cass->row_get_column($row, 1);
-			# or my $value = $cass->row_get_column_by_name($row, "body");
-			
-			my $text = {};
-			if(($status = $cass->value_get_string($value, $text)) == CASS_OK)
-			{
-				print $text, "\n";
-			}
-			else{ warn $cass->error_desc($status) }
-		}
-		
-		$cass->result_free($result);
-		$cass->iterator_free($rows);
-	}
-	
-	$cass->statement_free($statement);
-	$cass->future_free($result_future);
-	
-	my $close_future = $cass->session_close($session);
-	$cass->future_wait($close_future);
-	$cass->future_free($close_future);
- }
- else {die $cass->error_desc($status)}
- 
- $cass->future_free($connect_future);
- $cass->cluster_free();
  
 
 =head1 DESCRIPTION
@@ -198,15 +150,15 @@ Example:
 
  my $obj_Statement = $cass->sm_prepare($query, $out_status);
 
-Return: obj_Statement
+Return: obj_Prepare
 
 Example:
 
  my $status;
- my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (12345,'test text')", $status);
+ my $prepare = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (12345,'test text')", $status);
  die $cass->error_desc($status) if $status != CASS_OK;
  
- $cass->sm_finish_query($sth);
+ $cass->sm_finish_query($prepare);
 
 
 =head3 sm_execute_query
@@ -215,55 +167,15 @@ Example:
 
 Return: CASS_OK if successful, otherwise an error occurred
 
-Example:
-
- my $cass = Database::Cassandra::Client->cluster_new();
- 
- my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
- die $cass->error_desc($status) if $status != CASS_OK;
- 
- my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
- die $cass->error_desc($status) if $status != CASS_OK;
- 
- $cass->statement_bind_int64($sth, 0, 1234567);
- $cass->statement_bind_string($sth, 1, 'test body bind');
- 
- $status = $cass->sm_execute_query($sth);
- die $cass->error_desc($status) if $status != CASS_OK;
- 
- $cass->sm_finish_query($sth);
- 
- $cass->sm_destroy();
-
-
 =head3 sm_select_query
 
- my $res = $cass->sm_select_query($statement, $binds, $out_status);
+ my $res = $cass->sm_select_query($statement, $out_status);
 
 Return: variable
 
-Example:
-
- my $cass = Database::Cassandra::Client->cluster_new();
- 
- my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
- die $cass->error_desc($status) if $status != CASS_OK;
-
- my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
- die $cass->error_desc($status) if $status != CASS_OK;
- 
- $cass->statement_bind_int64($sth, 0, 1234567);
- 
- my $data = $cass->sm_select_query($sth, undef, $status);
- die $cass->error_desc($status) if $status != CASS_OK;
- 
- $cass->sm_finish_query($sth);
- $cass->sm_destroy();
-
-
 =head3 sm_finish_query
 
- $cass->sm_finish_query($sth);
+ $cass->sm_finish_query($prepare);
 
 Free query statement
 
@@ -293,15 +205,6 @@ Return: cassandra_object
 Frees a cluster instance. 
 
 Return: undef
-
-
-=head3 cluster_set_contact_points
-
- my $error_code = $cass->cluster_set_contact_points($contact_points);
-
-Sets/Appends contact points. This *MUST* be set. The first call sets the contact points and any subsequent calls appends additional contact points. Passing an empty string will clear the contact points. White space is striped from the contact points.  Examples: "127.0.0.1" "127.0.0.1,127.0.0.2", "server1.domain.com" 
-
-Return: CASS_OK if successful, otherwise an error occurred
 
 
 =head3 cluster_set_port
