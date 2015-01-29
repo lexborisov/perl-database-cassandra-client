@@ -922,7 +922,7 @@ sm_finish_query(cass, prepared)
 	CassPrepared *prepared;
 	
 	CODE:
-		if(future)
+		if(prepared)
 			cass_prepared_free(prepared);
 
 void
