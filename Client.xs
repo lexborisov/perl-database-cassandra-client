@@ -936,6 +936,8 @@ sm_destroy(cass)
 			cass_future_wait(close_future);
 			cass_future_free(close_future);
 			
+			cass_session_free(cass->session);
+			
 			cass->session = NULL;
 		}
 		
