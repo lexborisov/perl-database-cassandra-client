@@ -849,7 +849,7 @@ sm_prepare(cass, query, out_status)
 	SV *out_status;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		sv_setiv(out_status, CASS_OK);
 		
@@ -1208,10 +1208,9 @@ cluster_set_token_aware_routing(cass, enabled)
 		cass_cluster_set_token_aware_routing(cass->cluster, enabled);
 
 void
-cass_cluster_set_tcp_nodelay(cass, enable)
+cluster_set_tcp_nodelay(cass, enable)
 	Database::Cassandra::Client cass;
 	int enable;
-	
 	
 	CODE:
 		cass_cluster_set_tcp_nodelay(cass->cluster, enable);
@@ -1239,12 +1238,23 @@ cluster_free(cass)
 #* Session
 #*
 #***********************************************************************************
+
 CassSession*
-session_new(void)
+session_new(cass)
+	Database::Cassandra::Client cass;
+	
 	CODE:
 		RETVAL = cass_session_new();
 	OUTPUT:
 		RETVAL
+
+void
+session_free(cass, session)
+	Database::Cassandra::Client cass;
+	CassSession *session;
+	
+	CODE:
+		cass_session_free(session);
 
 CassFuture*
 session_connect(cass, session)
@@ -1284,7 +1294,7 @@ session_prepare(cass, session, query)
 	SV *query;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *query_c = SvPV( query, len );
 		CassString query_str = {query_c, (cass_size_t)len};
@@ -1316,7 +1326,7 @@ session_execute_batch(cass, session, batch)
 		RETVAL
 
 const CassSchema*
-session_get_schema(session, batch)
+session_get_schema(session)
 	CassSession *session;
 	
 	CODE:
@@ -1324,6 +1334,171 @@ session_get_schema(session, batch)
 	OUTPUT:
 		RETVAL
 
+#***********************************************************************************
+#*
+#* Schema metadata
+#*
+#***********************************************************************************
+
+void
+schema_free(cass, schema)
+	Database::Cassandra::Client cass;
+	const CassSchema* schema;
+	
+	CODE:
+		cass_schema_free(schema);
+
+const CassSchemaMeta*
+schema_get_keyspace(cass, schema, keyspace_name)
+	Database::Cassandra::Client cass;
+	const CassSchema* schema;
+	SV* keyspace_name;
+	
+	PREINIT:
+		STRLEN len;
+	CODE:
+		char *keyspace_name_c = SvPV(keyspace_name, len);
+		RETVAL = cass_schema_get_keyspace(schema, keyspace_name_c);
+	OUTPUT:
+		RETVAL
+
+CassSchemaMetaType
+schema_meta_type(cass, meta)
+	Database::Cassandra::Client cass;
+	const CassSchemaMeta* meta;
+	
+	CODE:
+		RETVAL = cass_schema_meta_type(meta);
+	OUTPUT:
+		RETVAL
+
+const CassSchemaMeta*
+schema_meta_get_entry(cass, meta, name)
+	Database::Cassandra::Client cass;
+	const CassSchemaMeta* meta;
+	SV* name;
+	
+	PREINIT:
+		STRLEN len;
+	CODE:
+		char *name_c = SvPV(name, len);
+		RETVAL = cass_schema_meta_get_entry(meta, name_c);
+	OUTPUT:
+		RETVAL
+
+const CassSchemaMetaField*
+schema_meta_get_field(cass, meta, name)
+	Database::Cassandra::Client cass;
+	const CassSchemaMeta* meta;
+	SV* name;
+	
+	PREINIT:
+		STRLEN len;
+	CODE:
+		char *name_c = SvPV(name, len);
+		RETVAL = cass_schema_meta_get_field(meta, name_c);
+	OUTPUT:
+		RETVAL
+
+SV*
+schema_meta_field_name(cass, field)
+	Database::Cassandra::Client cass;
+	const CassSchemaMetaField* field;
+	
+	CODE:
+		CassString str = cass_schema_meta_field_name(field);
+		RETVAL = newSVpv( str.data, str.length );
+	OUTPUT:
+		RETVAL
+
+const CassValue*
+schema_meta_field_value(cass, field)
+	Database::Cassandra::Client cass;
+	const CassSchemaMetaField* field;
+	
+	CODE:
+		RETVAL = cass_schema_meta_field_value(field);
+	OUTPUT:
+		RETVAL
+
+#***********************************************************************************
+#*
+#* SSL
+#*
+#***********************************************************************************
+
+CassSsl*
+ssl_new(void)
+	CODE:
+		RETVAL = cass_ssl_new();
+	OUTPUT:
+		RETVAL
+
+void
+ssl_free(cass, ssl)
+	Database::Cassandra::Client cass;
+	CassSsl *ssl;
+	
+	CODE:
+		cass_ssl_free(ssl);
+
+CassError
+ssl_add_trusted_cert(cass, ssl, tcert_string)
+	Database::Cassandra::Client cass;
+	CassSsl *ssl;
+	SV *tcert_string;
+	
+	PREINIT:
+		STRLEN len;
+	CODE:
+		char *tcert_string_c = SvPV( tcert_string, len );
+		CassString tcert_string_str = {tcert_string_c, (cass_size_t)len};
+		
+		RETVAL = cass_ssl_add_trusted_cert(ssl, tcert_string_str);
+	OUTPUT:
+		RETVAL
+
+void
+ssl_set_verify_flags(cass, ssl, flags)
+	Database::Cassandra::Client cass;
+	CassSsl *ssl;
+	int flags;
+	
+	CODE:
+		cass_ssl_set_verify_flags(ssl, flags);
+
+CassError
+ssl_set_cert(cass, ssl, cert)
+	Database::Cassandra::Client cass;
+	CassSsl *ssl;
+	SV *cert;
+	
+	PREINIT:
+		STRLEN len;
+	CODE:
+		char *cert_c = SvPV( cert, len );
+		CassString cert_str = {cert_c, (cass_size_t)len};
+		
+		RETVAL = cass_ssl_set_cert(ssl, cert_str);
+	OUTPUT:
+		RETVAL
+
+CassError
+ssl_set_private_key(cass, ssl, key, password)
+	Database::Cassandra::Client cass;
+	CassSsl *ssl;
+	SV *key;
+	const char* password;
+	
+	PREINIT:
+		STRLEN len;
+	CODE:
+		char *key_c = SvPV( key, len );
+		CassString key_str = {key_c, (cass_size_t)len};
+		
+		RETVAL = cass_ssl_set_private_key(ssl, key_str, password);
+	OUTPUT:
+		RETVAL
 
 #***********************************************************************************
 #*
@@ -1448,7 +1623,7 @@ statement_new(cass, query, parameter_count)
 	SV *parameter_count;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *query_c = SvPV( query, len );
 		CassString query_str = {query_c, (cass_size_t)len};
@@ -1612,7 +1787,7 @@ statement_bind_string(cass, statement, index, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		const char *value_c = SvPV( value, len );
 		CassString value_str = {value_c, (cass_size_t)len};
@@ -1629,7 +1804,7 @@ statement_bind_bytes(cass, statement, index, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *value_c = SvPV( value, len );
 		CassBytes value_b = {(const unsigned char *)value_c, (cass_size_t)len};
@@ -1662,10 +1837,15 @@ statement_bind_inet(cass, statement, index, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *value_c = SvPV( value, len );
-		CassInet value_b = {(unsigned char)value_c, (cass_size_t)len};
+		CassInet value_b = {0,0};
+		
+		if(len < CASS_INET_V6_LENGTH) {
+			value_b.address_length = (cass_size_t)len;
+			memcpy(&value_b.address, value_c, (value_b.address_length * sizeof(cass_uint8_t)));
+		}
 		
 		RETVAL = cass_statement_bind_inet(statement, (cass_size_t)SvUV(index), value_b);
 	OUTPUT:
@@ -1800,7 +1980,7 @@ statement_bind_string_by_name(cass, statement, name, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		const char *value_c = SvPV( value, len );
 		CassString value_str = {value_c, (cass_size_t)len};
@@ -1817,7 +1997,7 @@ statement_bind_bytes_by_name(cass, statement, name, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *value_c = SvPV( value, len );
 		CassBytes value_b = {(const unsigned char *)value_c, (cass_size_t)len};
@@ -1850,10 +2030,15 @@ statement_bind_inet_by_name(cass, statement, name, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *value_c = SvPV( value, len );
-		CassInet value_b = {(unsigned char)value_c, (cass_size_t)len};
+		CassInet value_b = {0,0};
+		
+		if(len < CASS_INET_V6_LENGTH) {
+			value_b.address_length = (cass_size_t)len;
+			memcpy(&value_b.address, value_c, (value_b.address_length * sizeof(cass_uint8_t)));
+		}
 		
 		RETVAL = cass_statement_bind_inet_by_name(statement, name, value_b);
 	OUTPUT:
@@ -1951,7 +2136,7 @@ prepared_bind(cass, prepared)
 #*
 #***********************************************************************************
 
-CassBatch *
+CassBatch*
 batch_new(cass, type)
 	Database::Cassandra::Client cass;
 	int type;
@@ -2078,7 +2263,7 @@ collection_append_string(cass, collection, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		const char *value_c = SvPV( value, len );
 		CassString value_str = {value_c, (cass_size_t)len};
@@ -2094,7 +2279,7 @@ collection_append_bytes(cass, collection, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		const char *value_c = SvPV( value, len );
 		CassBytes value_bstr = {(const unsigned char *)value_c, (cass_size_t)len};
@@ -2125,10 +2310,16 @@ collection_append_inet(cass, collection, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *value_c = SvPV( value, len );
-		CassInet value_b = {(unsigned char)value_c, (cass_size_t)len};
+		
+		CassInet value_b = {0,0};
+		
+		if(len < CASS_INET_V6_LENGTH) {
+			value_b.address_length = (cass_size_t)len;
+			memcpy(&value_b.address, value_c, (value_b.address_length * sizeof(cass_uint8_t)));
+		}
 		
 		RETVAL = cass_collection_append_inet(collection, value_b);
 	OUTPUT:
@@ -2239,6 +2430,22 @@ result_has_more_pages(cass, result)
 #*
 #***********************************************************************************
 
+void
+iterator_free(cass, iterator)
+	Database::Cassandra::Client cass;
+	CassIterator* iterator;
+	
+	CODE:
+		cass_iterator_free(iterator);
+
+CassIteratorType
+iterator_type(cass, iterator)
+	Database::Cassandra::Client cass;
+	CassIterator* iterator;
+	
+	CODE:
+		cass_iterator_type(iterator);
+
 CassIterator*
 iterator_from_result(cass, result)
 	Database::Cassandra::Client cass;
@@ -2279,13 +2486,35 @@ iterator_from_map(cass, value)
 	OUTPUT:
 		RETVAL
 
-void
-iterator_free(cass, iterator)
+CassIterator*
+iterator_from_schema(cass, schema)
 	Database::Cassandra::Client cass;
-	CassIterator* iterator;
+	CassSchema* schema;
 	
 	CODE:
-		cass_iterator_free(iterator);
+		RETVAL = cass_iterator_from_schema(schema);
+	OUTPUT:
+		RETVAL
+
+CassIterator*
+iterator_from_schema_meta(cass, meta)
+	Database::Cassandra::Client cass;
+	CassSchemaMeta* meta;
+	
+	CODE:
+		RETVAL = cass_iterator_from_schema_meta(meta);
+	OUTPUT:
+		RETVAL
+
+CassIterator*
+iterator_fields_from_schema_meta(cass, meta)
+	Database::Cassandra::Client cass;
+	CassSchemaMeta* meta;
+	
+	CODE:
+		RETVAL = cass_iterator_fields_from_schema_meta(meta);
+	OUTPUT:
+		RETVAL
 
 SV*
 iterator_next(cass, iterator)
@@ -2344,6 +2573,26 @@ iterator_get_map_value(cass, iterator)
 	
 	CODE:
 		RETVAL = (CassValue*)cass_iterator_get_map_value(iterator);
+	OUTPUT:
+		RETVAL
+
+const CassSchemaMeta*
+iterator_get_schema_meta(cass, iterator)
+	Database::Cassandra::Client cass;
+	CassIterator* iterator;
+	
+	CODE:
+		RETVAL = cass_iterator_get_schema_meta(iterator);
+	OUTPUT:
+		RETVAL
+
+const CassSchemaMetaField*
+iterator_get_schema_meta_field(cass, iterator)
+	Database::Cassandra::Client cass;
+	CassIterator* iterator;
+	
+	CODE:
+		RETVAL = cass_iterator_get_schema_meta_field(iterator);
 	OUTPUT:
 		RETVAL
 
@@ -2590,6 +2839,26 @@ value_is_null(cass, value)
 		RETVAL
 
 SV*
+value_is_collection(cass, value)
+	Database::Cassandra::Client cass;
+	CassValue* value;
+	
+	CODE:
+		RETVAL = newSViv( cass_value_is_collection(value) );
+	OUTPUT:
+		RETVAL
+
+SV*
+value_item_count(cass, value)
+	Database::Cassandra::Client cass;
+	CassValue* value;
+	
+	CODE:
+		RETVAL = newSViv( cass_value_item_count(value) );
+	OUTPUT:
+		RETVAL
+
+SV*
 value_primary_sub_type(cass, collection)
 	Database::Cassandra::Client cass;
 	CassValue* collection;
@@ -2801,6 +3070,7 @@ error_desc(cass, error_code)
 #* Log level
 #*
 #***********************************************************************************
+
 void
 log_set_level(level)
 	int level;
@@ -2959,6 +3229,20 @@ DESTROY(cass)
 #* Const
 #*
 #***********************************************************************************
+
+SV*
+cass_true()
+	CODE:
+		RETVAL = newSViv( cass_true );
+	OUTPUT:
+		RETVAL
+
+SV*
+cass_false()
+	CODE:
+		RETVAL = newSViv( cass_false );
+	OUTPUT:
+		RETVAL
 
 SV*
 CASS_CONSISTENCY_ANY()
