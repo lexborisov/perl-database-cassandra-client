@@ -1,3 +1,6 @@
+2.00	  Fri Sep 04 2015 15:05:03 GMT+0300
+	  Support new libcassandra API 2.0.x
+
 0.71	  Thu Jan 29 2015 14:34:17 GMT+0300
 	  Changed Simple methods
 	  rename sm_select_query_by_future to sm_result_from_future

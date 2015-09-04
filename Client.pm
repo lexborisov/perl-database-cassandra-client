@@ -5,11 +5,12 @@ use strict;
 use vars qw($AUTOLOAD $VERSION $ABSTRACT @ISA @EXPORT);
 
 BEGIN {
-	$VERSION = 0.71;
-	$ABSTRACT = "Cassandra client (XS for libcassandra)";
+	$VERSION = 2.00;
+	$ABSTRACT = "Cassandra client (XS for libcassandra version 2.0)";
 	
 	@ISA = qw(Exporter DynaLoader);
 	@EXPORT = qw(
+		cass_true cass_false
 		CASS_CONSISTENCY_ANY CASS_CONSISTENCY_ONE CASS_CONSISTENCY_TWO CASS_CONSISTENCY_THREE
 		CASS_CONSISTENCY_QUORUM CASS_CONSISTENCY_ALL CASS_CONSISTENCY_LOCAL_QUORUM CASS_CONSISTENCY_EACH_QUORUM
 		CASS_CONSISTENCY_SERIAL CASS_CONSISTENCY_LOCAL_SERIAL CASS_CONSISTENCY_LOCAL_ONE
@@ -51,7 +52,7 @@ __END__
 
 =head1 NAME
 
-Database::Cassandra::Client - Cassandra client (XS for libcassandra)
+Database::Cassandra::Client - Cassandra client (XS for libcassandra version 2.0.x)
 
 =head1 SYNOPSIS
 
@@ -120,12 +121,11 @@ Base API:
 
 This is glue for Cassandra C/C++ Driver library.
 
-Please, before install this module make Cassandra library.
+Please, before install this module make Cassandra library version 2.0.x.
 
-Current libcassandra RC 1 ( https://github.com/datastax/cpp-driver )
+See https://github.com/datastax/cpp-driver/tree/2.0
 
-See https://github.com/datastax/cpp-driver
-
+For version 1.0.x see https://github.com/lexborisov/perl-database-cassandra-client/tree/cpp_driver_1.0
 
 =head1 METHODS
 

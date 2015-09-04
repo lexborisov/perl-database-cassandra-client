@@ -1,18 +1,18 @@
-Database::Sophia
+Database::Cassandra::Client
 =============
 
 DESCRIPTION
 
 This is glue for Cassandra C/C++ Driver library.
 
-Current beta5 ( https://github.com/datastax/cpp-driver/tree/beta5 )
+See https://github.com/datastax/cpp-driver/tree/2.0
 
-See https://github.com/datastax/cpp-driver
+For version 1.0.x see https://github.com/lexborisov/perl-database-cassandra-client/tree/cpp_driver_1.0
 
 
 INSTALLATION
 
-Please, before install this module make Cassandra library.
+Please, before install this module make Cassandra library version 2.0.x.
 
 Just follow the usual procedure:
 
@@ -24,12 +24,12 @@ Just follow the usual procedure:
 
 REPORTING BUGS
 
-Alexander Borisov <lastmac@cpan.org>
+Alexander Borisov <lex.borisov@gmail.com>
 
 
 COPYRIGHT
 
-  © 2014 Alexander Borisov. All rights reserved.
+  © 2015 Alexander Borisov. All rights reserved.
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.

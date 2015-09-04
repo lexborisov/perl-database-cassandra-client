@@ -216,14 +216,16 @@ SV * get_sv_by_inet(const CassValue *column)
 
 SV * get_sv_by_string(const CassValue *column)
 {
-	CassString s_output;
+	const char* s_output = NULL;
+	size_t s_size = 0;
+	
 	SV *val = &PL_sv_undef;
 	
-	if(cass_value_get_string(column, &s_output) == CASS_OK)
+	if(cass_value_get_string(column, &s_output, &s_size) == CASS_OK)
 	{
-		if(s_output.length)
+		if(s_size)
 		{
-			val = newSVpv(s_output.data, s_output.length);
+			val = newSVpv(s_output, s_size);
 		}
 		else
 			val = newSVpv(&term_null, 0);
@@ -236,14 +238,16 @@ SV * get_sv_by_string(const CassValue *column)
 
 SV * get_sv_by_bytes(const CassValue *column)
 {
-	CassBytes s_output;
+	const cass_byte_t* s_output = NULL;
+	size_t s_size = 0;
+	
 	SV *val = &PL_sv_undef;
 	
-	if(cass_value_get_bytes(column, &s_output) == CASS_OK)
+	if(cass_value_get_bytes(column, &s_output, &s_size) == CASS_OK)
 	{
-		if(s_output.size)
+		if(s_size)
 		{
-			val = newSVpv((char *)s_output.data, s_output.size);
+			val = newSVpv((char *)s_output, s_size);
 		}
 		else
 			val = newSVpv(&term_null, 0);
@@ -256,13 +260,16 @@ SV * get_sv_by_bytes(const CassValue *column)
 
 SV * get_sv_by_decimal(const CassValue *column)
 {
-	CassDecimal s_output;
-	if(cass_value_get_decimal(column, &s_output) == CASS_OK)
+	const cass_byte_t* varint = NULL;
+	size_t varint_size = 0;
+	cass_int32_t scale = 0;
+	
+	if(cass_value_get_decimal(column, &varint, &varint_size, &scale) == CASS_OK)
 	{
 		SV **ha;
 		HV *hash_value = newHV();
-		ha = hv_store(hash_value, "scale", 5, newSViv(s_output.scale), 0);
-		ha = hv_store(hash_value, "bytes", 5, newSVpv((char *)(s_output.varint.data), s_output.varint.size), 0);
+		ha = hv_store(hash_value, "scale", 5, newSViv(scale), 0);
+		ha = hv_store(hash_value, "bytes", 5, newSVpv((char *)(varint), varint_size), 0);
 		
 		return newRV_noinc( (SV *)hash_value );
 	}
@@ -294,7 +301,7 @@ void *sv_by_type_cass[CASS_VALUE_TYPE_SET] = {
 	0
 };
 
-SV * sm_build_result(CassFuture *future, CassError *rc)
+SV * sm_build_result(CassFuture *future, CassError *rc, CassStatement *statement, int *next_page)
 {
 	AV* array = newAV();
 	
@@ -306,8 +313,8 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 			const CassResult *result = cass_future_get_result(future);
 			CassIterator *iterator   = cass_iterator_from_result(result);
 			
-			cass_size_t column_id;
-			cass_size_t column_count = cass_result_column_count(result);
+			size_t column_id;
+			size_t column_count = cass_result_column_count(result);
 			
 			SV **ha;
 			
@@ -318,14 +325,19 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 				HV *hash = newHV();
 				SV *val;
 				
+				const char *column_name = NULL;
+				size_t column_name_size = 0;
+				
 				for(column_id = 0; column_id < column_count; column_id++)
 				{
 					const CassValue *column = cass_row_get_column(row, column_id);
-					CassString column_name  = cass_result_column_name(result, column_id);
+					
+					
+					cass_result_column_name(result, column_id, &column_name, &column_name_size);
 					
 					if(cass_value_is_null(column))
 					{
-						ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+						ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 						continue;
 					}
 					
@@ -333,48 +345,20 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 					{
 						case CASS_VALUE_TYPE_UNKNOWN:
 						{
-							ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							break;
 						}
 						case CASS_VALUE_TYPE_CUSTOM:
 						{
-							CassBytes s_output;
-							val = &PL_sv_undef;
-							
-							if(cass_value_get_bytes(column, &s_output) == CASS_OK)
-							{
-								if(s_output.size)
-								{
-									val = newSVpv((char *)(s_output.data), s_output.size);
-								}
-								else
-									val = newSVpv(&term_null, 0);
-								
-								SvUTF8_on(val);
-							}
-							
-							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							val = get_sv_by_bytes(column);
+							ha = hv_store(hash, column_name, column_name_size, val, 0);
 							
 							break;
 						}
 						case CASS_VALUE_TYPE_ASCII:
 						{
-							CassString s_output;
-							val = &PL_sv_undef;
-							
-							if(cass_value_get_string(column, &s_output) == CASS_OK)
-							{
-								if(s_output.length)
-								{
-									val = newSVpv(s_output.data, s_output.length);
-								}
-								else
-									val = newSVpv(&term_null, 0);
-								
-								SvUTF8_on(val);
-							}
-							
-							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							val = get_sv_by_string(column);
+							ha = hv_store(hash, column_name, column_name_size, val, 0);
 							
 							break;
 						}
@@ -385,33 +369,19 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSViv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
 						}
 						case CASS_VALUE_TYPE_BLOB:
 						{
-							CassBytes s_output;
-							val = &PL_sv_undef;
-							
-							if(cass_value_get_bytes(column, &s_output) == CASS_OK)
-							{
-								if(s_output.size)
-								{
-									val = newSVpv((char *)(s_output.data), s_output.size);
-								}
-								else
-									val = newSVpv(&term_null, 0);
-								
-								SvUTF8_on(val);
-							}
-							
-							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							val = get_sv_by_bytes(column);
+							ha = hv_store(hash, column_name, column_name_size, val, 0);
 							
 							break;
 						}
@@ -422,11 +392,11 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSViv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
@@ -438,29 +408,19 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSViv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
 						}
 						case CASS_VALUE_TYPE_DECIMAL:
 						{
-							CassDecimal s_output;
-							if(cass_value_get_decimal(column, &s_output)  == CASS_OK)
-							{
-								HV *hash_value = newHV();
-								ha = hv_store(hash_value, "scale", 5, newSViv(s_output.scale), 0);
-								ha = hv_store(hash_value, "bytes", 5, newSVpv((char *)(s_output.varint.data), s_output.varint.size), 0);
-								ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc( (SV *)hash_value ), 0);
-							}
-							else
-							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
-							}
+							val = get_sv_by_decimal(column);
+							ha = hv_store(hash, column_name, column_name_size, val, 0);
 							
 							break;
 						}
@@ -471,11 +431,11 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSVnv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
@@ -487,11 +447,11 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSVnv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
@@ -503,33 +463,19 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSViv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
 						}
 						case CASS_VALUE_TYPE_TEXT:
 						{
-							CassString s_output;
-							val = &PL_sv_undef;
-							
-							if(cass_value_get_string(column, &s_output) == CASS_OK)
-							{
-								if(s_output.length)
-								{
-									val = newSVpv(s_output.data, s_output.length);
-								}
-								else
-									val = newSVpv(&term_null, 0);
-								
-								SvUTF8_on(val);
-							}
-							
-							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							val = get_sv_by_string(column);
+							ha = hv_store(hash, column_name, column_name_size, val, 0);
 							
 							break;
 						}
@@ -540,11 +486,11 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSViv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
@@ -559,33 +505,19 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 								
 								val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
 						}
 						case CASS_VALUE_TYPE_VARCHAR:
 						{
-							CassString s_output;
-							val = &PL_sv_undef;
-							
-							if(cass_value_get_string(column, &s_output) == CASS_OK)
-							{
-								if(s_output.length)
-								{
-									val = newSVpv(s_output.data, s_output.length);
-								}
-								else
-									val = newSVpv(&term_null, 0);
-								
-								SvUTF8_on(val);
-							}
-							
-							ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+							val = get_sv_by_string(column);
+							ha = hv_store(hash, column_name, column_name_size, val, 0);
 							
 							break;
 						}
@@ -596,11 +528,11 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							{
 								val = newSViv(s_output);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
@@ -615,11 +547,11 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 								
 								val = newSVpv(uuid, CASS_UUID_STRING_LENGTH);
 								SvUTF8_on(val);
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
@@ -636,11 +568,11 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 								
 								SvUTF8_on(val);
 								
-								ha = hv_store(hash, column_name.data, column_name.length, val, 0);
+								ha = hv_store(hash, column_name, column_name_size, val, 0);
 							}
 							else
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							}
 							
 							break;
@@ -652,7 +584,7 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							
 							if(type_key > CASS_VALUE_TYPE_INET)
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 								break;
 							}
 							
@@ -667,7 +599,7 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							}
 							cass_iterator_free(iterator_l);
 							
-							ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
+							ha = hv_store(hash, column_name, column_name_size, newRV_noinc((SV *)array_list), 0);
 							break;
 						}
 						case CASS_VALUE_TYPE_MAP:
@@ -679,7 +611,7 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							
 							if(type_key > CASS_VALUE_TYPE_INET || type_value > CASS_VALUE_TYPE_INET)
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 								break;
 							}
 							
@@ -700,7 +632,7 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							}
 							cass_iterator_free(iterator_l);
 							
-							ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)hash_value), 0);
+							ha = hv_store(hash, column_name, column_name_size, newRV_noinc((SV *)hash_value), 0);
 							break;
 						}
 						case CASS_VALUE_TYPE_SET:
@@ -710,7 +642,7 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							
 							if(type_key > CASS_VALUE_TYPE_INET)
 							{
-								ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+								ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 								break;
 							}
 							
@@ -725,16 +657,25 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 							}
 							cass_iterator_free(iterator_l);
 							
-							ha = hv_store(hash, column_name.data, column_name.length, newRV_noinc((SV *)array_list), 0);
+							ha = hv_store(hash, column_name, column_name_size, newRV_noinc((SV *)array_list), 0);
 							break;
 						}
 						default:
-							ha = hv_store(hash, column_name.data, column_name.length, &PL_sv_undef, 0);
+							ha = hv_store(hash, column_name, column_name_size, &PL_sv_undef, 0);
 							break;
 					}
 				}
 				
 				av_push(array, newRV_noinc((SV*)hash));
+			}
+			
+			if(statement && cass_result_has_more_pages(result))
+			{
+			    if(next_page)
+			    {
+				*next_page = 1;
+				cass_statement_set_paging_state(statement, result);
+			    }
 			}
 			
 			cass_result_free(result);
@@ -762,7 +703,7 @@ SV * sm_build_result(CassFuture *future, CassError *rc)
 //				
 //				unsigned char *output = NULL;
 //				
-//				cass_statement_bind_custom(statement, i, (cass_size_t)len, &output);
+//				cass_statement_bind_custom(statement, i, (size_t)len, &output);
 //				
 //				size_t size_m = sizeof(int32_t) + sizeof(int32_t);
 //				
@@ -853,10 +794,9 @@ sm_prepare(cass, query, out_status)
 	CODE:
 		sv_setiv(out_status, CASS_OK);
 		
-		char *c_query = SvPV( query, len );
-		CassString cass_query = cass_string_init(c_query);
+		const char *c_query = SvPV( query, len );
 		
-		CassFuture *future = cass_session_prepare(cass->session, cass_query);
+		CassFuture *future = cass_session_prepare_n(cass->session, c_query, len);
 		cass_future_wait(future);
 		
 		CassPrepared *prepared = NULL;
@@ -889,7 +829,7 @@ sm_select_query(cass, statement, out_status)
 		CassFuture *future = cass_session_execute(cass->session, statement);
 		cass_future_wait(future);
 		
-		SV *res = sm_build_result(future, &rc);
+		SV *res = sm_build_result(future, &rc, statement, 0);
 		
 		cass_future_free(future);
 		
@@ -900,15 +840,23 @@ sm_select_query(cass, statement, out_status)
 		RETVAL
 
 SV*
-sm_result_from_future(cass, future, out_status)
+sm_result_from_future(cass, future, out_status, statement = 0, next_page = &PL_sv_undef)
 	Database::Cassandra::Client cass;
 	CassFuture *future;
 	SV *out_status;
+	CassStatement *statement;
+	SV *next_page;
 	
 	CODE:
 		CassError rc = CASS_OK;
+		int cnext_page = 0;
 		
-		SV *res = sm_build_result(future, &rc);
+		SV *res = sm_build_result(future, &rc, statement, &cnext_page);
+		
+		if(SvOK(next_page))
+		{
+		    sv_setiv(next_page, cnext_page);
+		}
 		
 		sv_setiv(out_status, rc);
 		
@@ -1286,10 +1234,9 @@ session_prepare(cass, session, query)
 	PREINIT:
 		STRLEN len = 0;
 	CODE:
-		char *query_c = SvPV( query, len );
-		CassString query_str = {query_c, (cass_size_t)len};
+		const char *query_c = SvPV( query, len );
 		
-		RETVAL = cass_session_prepare(session, query_str);
+		RETVAL = cass_session_prepare_n(session, query_c, len);
 	OUTPUT:
 		RETVAL
 
@@ -1430,8 +1377,11 @@ future_error_message(cass, future)
 	CassFuture *future;
 	
 	CODE:
-		CassString str = cass_future_error_message(future);
-		RETVAL = newSVpv( str.data, str.length );
+		const char* message = NULL;
+		size_t message_length = 0;
+		
+		cass_future_error_message(future, &message, &message_length);
+		RETVAL = newSVpv( message, message_length );
 	OUTPUT:
 		RETVAL
 
@@ -1450,10 +1400,8 @@ statement_new(cass, query, parameter_count)
 	PREINIT:
 		STRLEN len = 0;
 	CODE:
-		char *query_c = SvPV( query, len );
-		CassString query_str = {query_c, (cass_size_t)len};
-		
-		RETVAL = cass_statement_new(query_str, (cass_size_t)SvUV(parameter_count));
+		const char *query_c = SvPV( query, len );
+		RETVAL = cass_statement_new_n(query_c, len, (size_t)SvUV(parameter_count));
 	OUTPUT:
 		RETVAL
 
@@ -1540,7 +1488,7 @@ statement_bind_null(cass, statement, index)
 	SV *index;
 	
 	CODE:
-		RETVAL = cass_statement_bind_null(statement, (cass_size_t)SvUV(index));
+		RETVAL = cass_statement_bind_null(statement, (size_t)SvUV(index));
 	OUTPUT:
 		RETVAL
 
@@ -1552,7 +1500,7 @@ statement_bind_int32(cass, statement, index, value)
 	SV *value;
 	
 	CODE:
-		RETVAL = cass_statement_bind_int32(statement, (cass_size_t)SvUV(index), (cass_int32_t)SvIV(value));
+		RETVAL = cass_statement_bind_int32(statement, (size_t)SvUV(index), (cass_int32_t)SvIV(value));
 	OUTPUT:
 		RETVAL
 
@@ -1564,7 +1512,7 @@ statement_bind_int64(cass, statement, index, value)
 	SV *value;
 	
 	CODE:
-		RETVAL = cass_statement_bind_int64(statement, (cass_size_t)SvUV(index), (cass_int64_t)SvIV(value));
+		RETVAL = cass_statement_bind_int64(statement, (size_t)SvUV(index), (cass_int64_t)SvIV(value));
 	OUTPUT:
 		RETVAL
 
@@ -1576,7 +1524,7 @@ statement_bind_float(cass, statement, index, value)
 	SV *value;
 	
 	CODE:
-		RETVAL = cass_statement_bind_float(statement, (cass_size_t)SvUV(index), (cass_float_t)SvNV(value));
+		RETVAL = cass_statement_bind_float(statement, (size_t)SvUV(index), (cass_float_t)SvNV(value));
 	OUTPUT:
 		RETVAL
 
@@ -1588,7 +1536,7 @@ statement_bind_double(cass, statement, index, value)
 	SV *value;
 	
 	CODE:
-		RETVAL = cass_statement_bind_double(statement, (cass_size_t)SvUV(index), (cass_float_t)SvNV(value));
+		RETVAL = cass_statement_bind_double(statement, (size_t)SvUV(index), (cass_float_t)SvNV(value));
 	OUTPUT:
 		RETVAL
 
@@ -1600,7 +1548,7 @@ statement_bind_bool(cass, statement, index, value)
 	SV *value;
 	
 	CODE:
-		RETVAL = cass_statement_bind_bool(statement, (cass_size_t)SvUV(index), (cass_bool_t)SvIV(value));
+		RETVAL = cass_statement_bind_bool(statement, (size_t)SvUV(index), (cass_bool_t)SvIV(value));
 	OUTPUT:
 		RETVAL
 
@@ -1615,9 +1563,7 @@ statement_bind_string(cass, statement, index, value)
 		STRLEN len = 0;
 	CODE:
 		const char *value_c = SvPV( value, len );
-		CassString value_str = {value_c, (cass_size_t)len};
-		
-		RETVAL = cass_statement_bind_string(statement, (cass_size_t)SvUV(index), value_str);
+		RETVAL = cass_statement_bind_string_n(statement, (size_t)SvUV(index), value_c, len);
 	OUTPUT:
 		RETVAL
 
@@ -1632,9 +1578,7 @@ statement_bind_bytes(cass, statement, index, value)
 		STRLEN len = 0;
 	CODE:
 		char *value_c = SvPV( value, len );
-		CassBytes value_b = {(const unsigned char *)value_c, (cass_size_t)len};
-		
-		RETVAL = cass_statement_bind_bytes(statement, (cass_size_t)SvUV(index), value_b);
+		RETVAL = cass_statement_bind_bytes(statement, (size_t)SvUV(index), (const unsigned char *)value_c, len);
 	OUTPUT:
 		RETVAL
 
@@ -1650,7 +1594,7 @@ statement_bind_uuid(cass, statement, index, value)
 		SV **k_csn = hv_fetch(value, "csn", 3, 0);
 		
 		CassUuid uuid = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
-		RETVAL = cass_statement_bind_uuid(statement, (cass_size_t)SvUV(index), uuid);
+		RETVAL = cass_statement_bind_uuid(statement, (size_t)SvUV(index), uuid);
 	OUTPUT:
 		RETVAL
 
@@ -1665,9 +1609,9 @@ statement_bind_inet(cass, statement, index, value)
 		STRLEN len = 0;
 	CODE:
 		char *value_c = SvPV( value, len );
-		CassInet value_b = {(unsigned char)value_c, (cass_size_t)len};
+		CassInet value_b = {(unsigned char)value_c, (size_t)len};
 		
-		RETVAL = cass_statement_bind_inet(statement, (cass_size_t)SvUV(index), value_b);
+		RETVAL = cass_statement_bind_inet(statement, (size_t)SvUV(index), value_b);
 	OUTPUT:
 		RETVAL
 
@@ -1679,7 +1623,7 @@ statement_bind_decimal(cass, statement, index, myhash)
 	HV *myhash;
 	
 	CODE:
-        SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
+		SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
 		SV **k_varint = hv_fetch(myhash, "varint", 6, 0);
 		
 		cass_int32_t scale = SvIV(*k_scale);
@@ -1687,10 +1631,7 @@ statement_bind_decimal(cass, statement, index, myhash)
 		STRLEN len;
 		char *bytes = SvPV(*k_varint, len);
 		
-		CassBytes varint = {(const unsigned char *)bytes, (cass_size_t)len};
-		CassDecimal decimal = {scale, varint};
-		
-		RETVAL = cass_statement_bind_decimal(statement, (cass_size_t)SvUV(index), decimal);
+		RETVAL = cass_statement_bind_decimal(statement, (size_t)SvUV(index), (const unsigned char *)bytes, len, scale);
 	OUTPUT:
 		RETVAL
 
@@ -1706,11 +1647,11 @@ statement_bind_custom(cass, statement, index, data)
 		unsigned char *data_c = (unsigned char *)SvPV(data, n_len);
 		
 		cass_byte_t *output_p = NULL;
-		RETVAL = cass_statement_bind_custom(statement, (cass_size_t)SvUV(index), n_len, &output_p);
+		RETVAL = cass_statement_bind_custom(statement, (size_t)SvUV(index), n_len, &output_p);
 		
 		if(RETVAL == CASS_OK)
 		{
-			cass_size_t i;
+			size_t i;
 			for(i = 0; i < n_len; i++)
 			{
 				output_p[i] = data_c[i];
@@ -1728,7 +1669,7 @@ statement_bind_collection(cass, statement, index, collection)
 	CassCollection* collection;
 	
 	CODE:
-		RETVAL = cass_statement_bind_collection(statement, (cass_size_t)SvUV(index), collection);
+		RETVAL = cass_statement_bind_collection(statement, (size_t)SvUV(index), collection);
 	OUTPUT:
 		RETVAL
 
@@ -1796,16 +1737,18 @@ CassError
 statement_bind_string_by_name(cass, statement, name, value)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
-	const char* name;
+	SV *name;
 	SV *value;
 	
 	PREINIT:
+		STRLEN name_len = 0;	
 		STRLEN len = 0;
+	
 	CODE:
+		const char *name_c = SvPV( name, name_len );
 		const char *value_c = SvPV( value, len );
-		CassString value_str = {value_c, (cass_size_t)len};
 		
-		RETVAL = cass_statement_bind_string_by_name(statement, name, value_str);
+		RETVAL = cass_statement_bind_string_by_name_n(statement, name_c, name_len, value_c, len);
 	OUTPUT:
 		RETVAL
 
@@ -1813,16 +1756,17 @@ CassError
 statement_bind_bytes_by_name(cass, statement, name, value)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
-	const char *name;
+	SV *name;
 	SV *value;
 	
 	PREINIT:
+		STRLEN name_len = 0;
 		STRLEN len = 0;
 	CODE:
+		const char *name_c = SvPV( name, name_len );
 		char *value_c = SvPV( value, len );
-		CassBytes value_b = {(const unsigned char *)value_c, (cass_size_t)len};
 		
-		RETVAL = cass_statement_bind_bytes_by_name(statement, name, value_b);
+		RETVAL = cass_statement_bind_bytes_by_name_n(statement, name_c, name_len, (cass_uint8_t *)value_c, len);
 	OUTPUT:
 		RETVAL
 
@@ -1834,7 +1778,7 @@ statement_bind_uuid_by_name(cass, statement, name, value)
 	HV *value;
 	
 	CODE:
-        SV **k_tv  = hv_fetch(value, "tv", 2, 0);
+		SV **k_tv  = hv_fetch(value, "tv", 2, 0);
 		SV **k_csn = hv_fetch(value, "csn", 3, 0);
 		
 		CassUuid uuid = {(cass_uint64_t)SvIV(*k_tv), (cass_uint64_t)SvIV(*k_csn)};
@@ -1850,10 +1794,10 @@ statement_bind_inet_by_name(cass, statement, name, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *value_c = SvPV( value, len );
-		CassInet value_b = {(unsigned char)value_c, (cass_size_t)len};
+		CassInet value_b = {(unsigned char)value_c, (size_t)len};
 		
 		RETVAL = cass_statement_bind_inet_by_name(statement, name, value_b);
 	OUTPUT:
@@ -1863,22 +1807,22 @@ CassError
 statement_bind_decimal_by_name(cass, statement, name, myhash)
 	Database::Cassandra::Client cass;
 	CassStatement *statement;
-	const char *name;
+	SV *name;
 	HV *myhash;
 	
+	PREINIT:
+		STRLEN len;
+		STRLEN name_len;
 	CODE:
-        SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
+		SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
 		SV **k_varint = hv_fetch(myhash, "varint", 6, 0);
 		
 		cass_int32_t scale = SvIV(*k_scale);
 		
-		STRLEN len;
 		char *bytes = SvPV(*k_varint, len);
+		const char *name_c = SvPV( name, name_len );
 		
-		CassBytes varint = {(const unsigned char *)bytes, (cass_size_t)len};
-		CassDecimal decimal = {scale, varint};
-		
-		RETVAL = cass_statement_bind_decimal_by_name(statement, name, decimal);
+		RETVAL = cass_statement_bind_decimal_by_name_n(statement, name_c, name_len, (const unsigned char *)bytes, len, scale);
 	OUTPUT:
 		RETVAL
 
@@ -1898,7 +1842,7 @@ statement_bind_custom_by_name(cass, statement, name, data)
 		
 		if(RETVAL == CASS_OK)
 		{
-			cass_size_t i;
+			size_t i;
 			for(i = 0; i < n_len; i++)
 			{
 				output_p[i] = data_c[i];
@@ -2004,7 +1948,7 @@ collection_new(cass, type, item_count)
 	SV *item_count;
 	
 	CODE:
-		RETVAL = cass_collection_new((CassCollectionType)type, (cass_size_t)SvUV(item_count));
+		RETVAL = cass_collection_new((CassCollectionType)type, (size_t)SvUV(item_count));
 	OUTPUT:
 		RETVAL
 
@@ -2078,12 +2022,10 @@ collection_append_string(cass, collection, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		const char *value_c = SvPV( value, len );
-		CassString value_str = {value_c, (cass_size_t)len};
-		
-		RETVAL = cass_collection_append_string(collection, value_str);
+		RETVAL = cass_collection_append_string_n(collection, value_c, len);
 	OUTPUT:
 		RETVAL
 
@@ -2097,9 +2039,7 @@ collection_append_bytes(cass, collection, value)
 		STRLEN len = 0;
 	CODE:
 		const char *value_c = SvPV( value, len );
-		CassBytes value_bstr = {(const unsigned char *)value_c, (cass_size_t)len};
-		
-		RETVAL = cass_collection_append_bytes(collection, value_bstr);
+		RETVAL = cass_collection_append_bytes(collection, (const unsigned char *)value_c, len);
 	OUTPUT:
 		RETVAL
 
@@ -2125,10 +2065,10 @@ collection_append_inet(cass, collection, value)
 	SV *value;
 	
 	PREINIT:
-		STRLEN len = 0;
+		STRLEN len;
 	CODE:
 		char *value_c = SvPV( value, len );
-		CassInet value_b = {(unsigned char)value_c, (cass_size_t)len};
+		CassInet value_b = {(unsigned char)value_c, (size_t)len};
 		
 		RETVAL = cass_collection_append_inet(collection, value_b);
 	OUTPUT:
@@ -2140,19 +2080,16 @@ collection_append_decimal(cass, collection, myhash)
 	CassCollection *collection;
 	HV *myhash;
 	
+	PREINIT:
+		STRLEN len = 0;
 	CODE:
-        SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
+		SV **k_scale  = hv_fetch(myhash, "scale", 5, 0);
 		SV **k_varint = hv_fetch(myhash, "varint", 6, 0);
 		
 		cass_int32_t scale = SvIV(*k_scale);
-		
-		STRLEN len;
 		char *bytes = SvPV(*k_varint, len);
 		
-		CassBytes varint = {(const unsigned char *)bytes, (cass_size_t)len};
-		CassDecimal decimal = {scale, varint};
-		
-		RETVAL = cass_collection_append_decimal(collection, decimal);
+		RETVAL = cass_collection_append_decimal(collection, (const cass_byte_t *)bytes, len, scale);
 	OUTPUT:
 		RETVAL
 
@@ -2197,8 +2134,12 @@ result_column_name(cass, result, index)
 	SV *index;
 	
 	CODE:
-		CassString str = cass_result_column_name(result, (cass_size_t)SvUV(index));
-		RETVAL = newSVpv(str.data, str.length);
+                const char* name = NULL;
+                size_t name_length = 0;
+		
+		cass_result_column_name(result, (size_t)SvUV(index), &name, &name_length);
+		
+		RETVAL = newSVpv(name, name_length);
 	OUTPUT:
 		RETVAL
 
@@ -2209,7 +2150,7 @@ result_column_type(cass, result, index)
 	SV *index;
 	
 	CODE:
-		RETVAL = newSViv( cass_result_column_type(result, (cass_size_t)SvUV(index)) );
+		RETVAL = newSViv( cass_result_column_type(result, (size_t)SvUV(index)) );
 	OUTPUT:
 		RETVAL
 
@@ -2360,7 +2301,7 @@ row_get_column(cass, row, index)
 	SV *index;
 	
 	CODE:
-		RETVAL = (CassValue*)cass_row_get_column(row, (cass_size_t)SvUV(index));
+		RETVAL = (CassValue*)cass_row_get_column(row, (size_t)SvUV(index));
 	OUTPUT:
 		RETVAL
 
@@ -2488,10 +2429,12 @@ value_get_string(cass, value, output)
 	SV* output;
 	
 	CODE:
-		CassString s_output;
-		RETVAL = cass_value_get_string(value, &s_output);
+		const char* s_output = NULL;
+                size_t s_output_size = 0;
 		
-		SV *n_str = sv_2mortal( newSVpv(s_output.data, s_output.length) );
+		RETVAL = cass_value_get_string(value, &s_output, &s_output_size);
+		
+		SV *n_str = sv_2mortal( newSVpv(s_output, s_output_size) );
 		
 		STRLEN n_len;
 		sv_setpv(output, SvPV(n_str, n_len));
@@ -2505,10 +2448,12 @@ value_get_bytes(cass, value, output)
 	SV* output;
 	
 	CODE:
-		CassBytes s_output;
-		RETVAL = cass_value_get_bytes(value, &s_output);
+		const cass_byte_t* s_output = NULL;
+                size_t s_output_size = 0;
 		
-		SV *n_str = sv_2mortal( newSVpv((char *)(s_output.data), s_output.size) );
+		RETVAL = cass_value_get_bytes(value, &s_output, &s_output_size);
+		
+		SV *n_str = sv_2mortal( newSVpv((char *)(s_output), s_output_size) );
 		SvUTF8_off(n_str);
 		
 		STRLEN n_len;
@@ -2523,13 +2468,17 @@ value_get_decimal(cass, value, output)
 	HV* output;
 	
 	CODE:
-		CassDecimal s_output;
-		RETVAL = cass_value_get_decimal(value, &s_output);
+		const cass_byte_t* s_varint = NULL;
+                size_t s_varint_size = 0;
+		cass_int32_t scale = 0;
+		
+		RETVAL = cass_value_get_decimal(value, &s_varint, &s_varint_size, &scale);
+		
 		if(RETVAL == CASS_OK)
 		{
 			SV **ha;
-			ha = hv_store(output, "scale", 5, newSViv(s_output.scale), 0);
-			ha = hv_store(output, "bytes", 5, newSVpv((char *)(s_output.varint.data), s_output.varint.size), 0);
+			ha = hv_store(output, "scale", 5, newSViv(scale), 0);
+			ha = hv_store(output, "bytes", 5, newSVpv((char *)(s_varint), s_varint_size), 0);
 		}
 	OUTPUT:
 		RETVAL
@@ -2870,78 +2819,6 @@ inet_init_v6(cass, data)
 
 #***********************************************************************************
 #*
-#* Decimal
-#*
-#************************************************************************************
-
-SV*
-decimal_init(cass, scale, varint)
-	Database::Cassandra::Client cass;
-	SV *scale;
-	SV *varint;
-	
-	PREINIT:
-		STRLEN len;
-	CODE:
-		char *varint_s = SvPV(varint, len);
-		CassBytes varint_n = {(unsigned char *)varint_s, len};
-		CassDecimal str = cass_decimal_init(SvIV(scale), varint_n);
-		
-		SV **ha;
-		HV *hash = newHV();
-		
-		ha = hv_store(hash, "scale", 5, newSVsv(scale), 0);
-		ha = hv_store(hash, "bytes", 5, newSVpv((char *)str.varint.data, str.varint.size), 0);
-		
-		RETVAL = newRV_noinc((SV *)hash);
-	OUTPUT:
-		RETVAL
-
-
-#***********************************************************************************
-#*
-#* Bytes/String
-#*
-#************************************************************************************
-
-SV*
-bytes_init(cass, data, size)
-	Database::Cassandra::Client cass;
-	char* data;
-	SV *size;
-	
-	CODE:
-		CassBytes str = cass_bytes_init((unsigned char *)data, (cass_size_t)SvIV(size));
-		RETVAL = newSVpv((char *)str.data, str.size);
-	OUTPUT:
-		RETVAL
-
-SV*
-string_init(cass, string)
-	Database::Cassandra::Client cass;
-	const char* string;
-	
-	CODE:
-		CassString str = cass_string_init(string);
-		RETVAL = newSVpv(str.data, str.length);
-	OUTPUT:
-		RETVAL
-
-SV*
-string_init2(cass, string, length)
-	Database::Cassandra::Client cass;
-	const char* string;
-	SV *length;
-	
-	CODE:
-		CassString str = cass_string_init2(string, (cass_size_t)SvIV(length));
-		RETVAL = newSVpv(str.data, str.length);
-	OUTPUT:
-		RETVAL
-
-
-#***********************************************************************************
-#*
 #* Destroy Perl Object
 #*
 #***********************************************************************************
@@ -2959,6 +2836,20 @@ DESTROY(cass)
 #* Const
 #*
 #***********************************************************************************
+
+SV*
+cass_true()
+	CODE:
+		RETVAL = newSViv( cass_true );
+	OUTPUT:
+		RETVAL
+
+SV*
+cass_false()
+	CODE:
+		RETVAL = newSViv( cass_false );
+	OUTPUT:
+		RETVAL
 
 SV*
 CASS_CONSISTENCY_ANY()

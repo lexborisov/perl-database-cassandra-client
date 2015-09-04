@@ -1,15 +1,15 @@
 perl-database-cassandra-client
 ==============================
 
-Cassandra client (XS for libcassandra)
+Database::Cassandra::Client - Cassandra client (XS for libcassandra version 2.0.x)
 
 # INSTALLATION
 
-Please, before install this module make Cassandra library.
+Please, before install this module make Cassandra library version 2.0.x.
 
-Current libcassandra RC 1 ( https://github.com/datastax/cpp-driver )
+See https://github.com/datastax/cpp-driver/tree/2.0
 
-See https://github.com/datastax/cpp-driver
+For version 1.0.x see https://github.com/lexborisov/perl-database-cassandra-client/tree/cpp_driver_1.0
 
 Make module:
 
