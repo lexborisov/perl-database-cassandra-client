@@ -1,6 +1,10 @@
 perl-database-cassandra-client
 ==============================
 
+# WARNING!!!!!! 
+## Do not use this! use https://github.com/lexborisov/perl-database-cassandra-client/tree/cpp_driver_1.0
+
+
 Database::Cassandra::Client - Cassandra client (XS for libcassandra version 2.0.x)
 
 # INSTALLATION
@@ -26,47 +30,54 @@ Simple API:
 
 ```perl
  use Database::Cassandra::Client;
-
+ 
  my $cass = Database::Cassandra::Client->cluster_new();
- $cass->cluster_set_num_threads_io(1);
  
  my $status = $cass->sm_connect("node1.domainame.com,node2.domainame.com");
  die $cass->error_desc($status) if $status != CASS_OK;
  
  # insert
  {
- 	my $sth = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
+ 	my $prepare = $cass->sm_prepare("INSERT INTO tw.docs (yauid, body) VALUES (?,?);", $status);
  	die $cass->error_desc($status) if $status != CASS_OK;
  	
 	for my $id (1..15)
 	{
-		$cass->statement_bind_int64($sth, 0, $id);
-		$cass->statement_bind_string($sth, 1, "test body bind: $id");
+		my $statement = $cass->prepared_bind($prepare);
 		
-		$status = $cass->sm_execute_query($sth);
+		$cass->statement_bind_int64($statement, 0, $id);
+		$cass->statement_bind_string($statement, 1, "test body bind: $id");
+		
+		$status = $cass->sm_execute_query($statement);
 		die $cass->error_desc($status) if $status != CASS_OK;
+		
+		$cass->statement_free($statement);
 	}
 	
-	$cass->sm_finish_query($sth);
+	$cass->sm_finish_query($prepare); # or $cass->prepared_free($prepare);
  }
  
  # get row
  {
- 	my $sth = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
+ 	my $prepare = $cass->sm_prepare("SELECT * FROM tw.docs where yauid=?", $status);
  	die $cass->error_desc($status) if $status != CASS_OK;
  	
 	for my $id (1..15)
 	{
-		$cass->statement_bind_int64($sth, 0, $id);
+		my $statement = $cass->prepared_bind($prepare);
 		
-		my $data = $cass->sm_select_query($sth, undef, $status);
+		$cass->statement_bind_int64($statement, 0, $id);
+		
+		my $data = $cass->sm_select_query($statement, $status);
 		die $cass->error_desc($status) if $status != CASS_OK;
 		
 		print $data->[0]->{yauid}, ": ", $data->[0]->{body}, "\n"
 			if ref $data && exists $data->[0];
+		
+		$cass->statement_free($statement);
  	}
 	
-	$cass->sm_finish_query($sth);
+	$cass->sm_finish_query($prepare); # or $cass->prepared_free($prepare);
  }
  
  $cass->sm_destroy();
@@ -80,9 +91,6 @@ Base API:
  my $status = CASS_OK;
  
  my $cass = Database::Cassandra::Client->cluster_new();
- 
- $status = $cass->cluster_set_num_threads_io(4);
- warn $cass->error_desc($status) if $status != CASS_OK;
  
  $cass->cluster_set_contact_points("node1.domain.ru,node2.domain.ru");
  
