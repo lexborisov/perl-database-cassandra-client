@@ -1,20 +1,70 @@
 TYPEMAP
 
-cassandra_t * T_PTROBJ
-CassFuture * T_PTROBJ
+cass_float_t T_FLOAT
+cass_double_t T_DOUBLE
+cass_bool_t T_ENUM
+
+cass_int8_t T_SHORT
+cass_uint8_t T_U_SHORT
+cass_int16_t T_IV
+cass_uint16_t T_UV
+cass_int32_t T_INT
+cass_uint32_t T_U_INT
+cass_int64_t T_IV
+cass_uint64_t T_UV
+cass_byte_t T_SHORT
+cass_duration_t T_UV
+
+CassInet * T_PTROBJ
+CassUuid * T_PTROBJ
+CassCluster * T_PTROBJ
 CassSession * T_PTROBJ
 CassStatement * T_PTROBJ
 CassBatch * T_PTROBJ
-CassResult * T_PTROBJ
+CassFuture * T_PTROBJ
 CassPrepared * T_PTROBJ
-CassCollection * T_PTROBJ
-CassRow * T_PTROBJ
+CassResult * T_PTROBJ
+CassErrorResult * T_PTROBJ
 CassIterator * T_PTROBJ
+CassRow * T_PTROBJ
 CassValue * T_PTROBJ
-CassError T_IV
-CassUuidGen * T_PTROBJ
+CassDataType * T_PTROBJ
+CassFunctionMeta * T_PTROBJ
+CassAggregateMeta * T_PTROBJ
+CassCollection * T_PTROBJ
+CassTuple * T_PTROBJ
+CassUserType * T_PTROBJ
 CassSsl * T_PTROBJ
-CassSchema * T_PTROBJ
-const CassSchema * T_PTROBJ
+CassVersion * T_PTROBJ
+CassSchemaMeta * T_PTROBJ
+const CassSchemaMeta * T_PTROBJ
+CassKeyspaceMeta * T_PTROBJ
+CassTableMeta * T_PTROBJ
+CassMaterializedViewMeta * T_PTROBJ
+CassColumnMeta * T_PTROBJ
+CassIndexMeta * T_PTROBJ
+CassUuidGen * T_PTROBJ
+CassTimestampGen * T_PTROBJ
+CassRetryPolicy * T_PTROBJ
+CassCustomPayload * T_PTROBJ
+CassMetrics * T_PTROBJ
+
+CassConsistency T_ENUM
+CassWriteType T_ENUM
+CassColumnType T_ENUM
+CassIndexType T_ENUM
+CassValueType T_ENUM
+CassClusteringOrder T_ENUM
+CassCollectionType T_ENUM
+CassBatchType T_ENUM
+CassIteratorType T_ENUM
+CassLogLevel T_ENUM
+CassSslVerifyFlags T_ENUM
+CassErrorSource T_ENUM
+CassError T_ENUM
+
+CassLogMessage * T_PTROBJ
+CassAuthenticator * T_PTROBJ
+CassAuthenticatorCallbacks * T_PTROBJ
 
 Database::Cassandra::Client T_PTROBJ

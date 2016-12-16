@@ -1,17 +1,13 @@
 perl-database-cassandra-client
 ==============================
 
-# WARNING!!!!!! 
-## Do not use this! use https://github.com/lexborisov/perl-database-cassandra-client/tree/cpp_driver_1.0
-
-
-Database::Cassandra::Client - Cassandra client (XS for libcassandra version 2.0.x)
+Database::Cassandra::Client - Cassandra client (XS for libcassandra version 2.5.x)
 
 # INSTALLATION
 
-Please, before install this module make Cassandra library version 2.0.x.
+Please, before install this module make Cassandra library version 2.5.x.
 
-See https://github.com/datastax/cpp-driver/tree/2.0
+See https://github.com/datastax/cpp-driver/
 
 For version 1.0.x see https://github.com/lexborisov/perl-database-cassandra-client/tree/cpp_driver_1.0
 
@@ -99,9 +95,7 @@ Base API:
  if(($status = $cass->future_error_code($connect_future)) == CASS_OK)
  {
  	my $session   = $cass->future_get_session($connect_future);
- 
- 	my $query     = $cass->string_init("select * from tw.docs limit 1");
- 	my $statement = $cass->statement_new($query, 0);
+ 	my $statement = $cass->statement_new("select * from tw.docs limit 1", 0);
  	
   	my $result_future = $cass->session_execute($session, $statement);
  	
@@ -1734,54 +1728,6 @@ Constructs an inet v6 object.
 Return: variable
 
 
-## Decimal
-
-### decimal_init
-
-```perl
- my $res = $cass->decimal_init($scale, $varint);
-```
-
-Constructs a decimal object.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
-## Bytes/String
-
-### bytes_init
-
-```perl
- my $res = $cass->bytes_init($data, $size);
-```
-
-Constructs a bytes object.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
-### string_init
-
-```perl
- my $res = $cass->string_init($string);
-```
-
-Constructs a string object from a null-terminated string.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
-### string_init2
-
-```perl
- my $res = $cass->string_init2($string, $length);
-```
-
-Constructs a string object.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
 ## other
 
 ### value_type_name_by_code
@@ -1804,7 +1750,7 @@ Alexander Borisov <lex.borisov@gmail.com>
 
 # COPYRIGHT AND LICENSE
 
-This software is copyright (c) 2014 by Alexander Borisov.
+This software is copyright (c) 2016 by Alexander Borisov.
 
 This is free software; you can redistribute it and/or modify it under the same terms as the Perl 5 programming language system itself.
 

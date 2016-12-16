@@ -5,8 +5,8 @@ use strict;
 use vars qw($AUTOLOAD $VERSION $ABSTRACT @ISA @EXPORT);
 
 BEGIN {
-	$VERSION = 2.00;
-	$ABSTRACT = "Cassandra client (XS for libcassandra version 2.0)";
+	$VERSION = 2.05;
+	$ABSTRACT = "Cassandra client (XS for libcassandra version 2.5.x)";
 	
 	@ISA = qw(Exporter DynaLoader);
 	@EXPORT = qw(
@@ -19,7 +19,9 @@ BEGIN {
 		CASS_VALUE_TYPE_BLOB CASS_VALUE_TYPE_BOOLEAN CASS_VALUE_TYPE_COUNTER CASS_VALUE_TYPE_DECIMAL
 		CASS_VALUE_TYPE_DOUBLE CASS_VALUE_TYPE_FLOAT CASS_VALUE_TYPE_INT CASS_VALUE_TYPE_TEXT
 		CASS_VALUE_TYPE_TIMESTAMP CASS_VALUE_TYPE_UUID CASS_VALUE_TYPE_VARCHAR CASS_VALUE_TYPE_VARINT
-		CASS_VALUE_TYPE_TIMEUUID CASS_VALUE_TYPE_INET CASS_VALUE_TYPE_LIST CASS_VALUE_TYPE_MAP CASS_VALUE_TYPE_SET
+		CASS_VALUE_TYPE_TIMEUUID CASS_VALUE_TYPE_INET CASS_VALUE_TYPE_DATE CASS_VALUE_TYPE_TIME 
+		CASS_VALUE_TYPE_SMALL_INT CASS_VALUE_TYPE_TINY_INT CASS_VALUE_TYPE_LIST CASS_VALUE_TYPE_MAP CASS_VALUE_TYPE_SET
+		CASS_VALUE_TYPE_UDT CASS_VALUE_TYPE_TUPLE
 		
 		CASS_COLLECTION_TYPE_LIST CASS_COLLECTION_TYPE_MAP CASS_COLLECTION_TYPE_SET
 		CASS_BATCH_TYPE_LOGGED CASS_BATCH_TYPE_UNLOGGED CASS_BATCH_TYPE_COUNTER
@@ -52,7 +54,7 @@ __END__
 
 =head1 NAME
 
-Database::Cassandra::Client - Cassandra client (XS for libcassandra version 2.0.x)
+Database::Cassandra::Client - Cassandra client (XS for libcassandra version 2.5.x)
 
 =head1 SYNOPSIS
 
@@ -123,7 +125,7 @@ This is glue for Cassandra C/C++ Driver library.
 
 Please, before install this module make Cassandra library version 2.0.x.
 
-See https://github.com/datastax/cpp-driver/tree/2.0
+See https://github.com/datastax/cpp-driver
 
 For version 1.0.x see https://github.com/lexborisov/perl-database-cassandra-client/tree/cpp_driver_1.0
 
@@ -219,7 +221,7 @@ Return: CASS_OK if successful, otherwise an error occurred
 
  my $error_code = $cass->cluster_set_protocol_version($protocol_version);
 
-Sets the protocol version. This will automatically downgrade if to protocol version 1.  Default: 2 
+Sets the protocol version. Default: 4 
 
 Return: CASS_OK if successful, otherwise an error occurred
 
@@ -1389,46 +1391,6 @@ Constructs an inet v6 object.
 Return: variable
 
 
-=head2 Decimal
-
-=head3 decimal_init
-
- my $res = $cass->decimal_init($scale, $varint);
-
-Constructs a decimal object.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
-=head2 Bytes/String
-
-=head3 bytes_init
-
- my $res = $cass->bytes_init($data, $size);
-
-Constructs a bytes object.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
-=head3 string_init
-
- my $res = $cass->string_init($string);
-
-Constructs a string object from a null-terminated string.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
-=head3 string_init2
-
- my $res = $cass->string_init2($string, $length);
-
-Constructs a string object.  Note: This does not allocate memory. The object wraps the pointer passed into this function. 
-
-Return: variable
-
-
 =head2 other
 
 =head3 value_type_name_by_code
@@ -1452,7 +1414,7 @@ https://github.com/lexborisov/perl-database-cassandra-client
 
 =head1 COPYRIGHT AND LICENSE
 
-This software is copyright (c) 2014 by Alexander Borisov.
+This software is copyright (c) 2016 by Alexander Borisov.
 
 This is free software; you can redistribute it and/or modify it under the same terms as the Perl 5 programming language system itself.
 
